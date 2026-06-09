@@ -13,12 +13,6 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:3001";
 
 const JOB_NAMES: Record<string, string> = {
   novice: "Novice",
-  swordman: "Swordman",
-  mage: "Mage",
-  archer: "Archer",
-  acolyte: "Acolyte",
-  merchant: "Merchant",
-  thief: "Thief",
 };
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
@@ -30,7 +24,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [channel, setLocalChannel] = useState<WebSocketChannel | null>(null);
   const [charError, setCharError] = useState<string | null>(null);
   const [newCharName, setNewCharName] = useState("");
-  const [newCharJob, setNewCharJob] = useState("novice");
+  const newCharJob = "novice";
 
   const handleEntitySpawn = useCallback((entity: EntitySnapshot) => {
     const store = useGameStore.getState();
@@ -218,15 +212,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               value={newCharName}
               onChange={(e) => setNewCharName(e.target.value)}
             />
-            <select
-              className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600 focus:outline-none focus:border-blue-500"
-              value={newCharJob}
-              onChange={(e) => setNewCharJob(e.target.value)}
-            >
-              {Object.entries(JOB_NAMES).map(([id, name]) => (
-                <option key={id} value={id}>{name}</option>
-              ))}
-            </select>
+            <div className="text-sm text-slate-400">Class: Novice (change jobs in-game)</div>
             <button
               className="w-full py-2 rounded bg-emerald-600 hover:bg-emerald-700 font-semibold"
               onClick={onCreateCharacter}

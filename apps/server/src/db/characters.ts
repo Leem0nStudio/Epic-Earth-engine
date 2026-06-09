@@ -40,6 +40,19 @@ function rowToEntry(row: CharacterRow): CharacterEntry {
   };
 }
 
+export async function ensureAccount(accountId: string, username: string): Promise<void> {
+  const supabase = getServiceClient();
+
+  const { error } = await supabase.from("accounts").upsert(
+    { id: accountId, username, email: username },
+    { onConflict: "id" }
+  );
+
+  if (error) {
+    console.error("[DB] ensureAccount error:", error);
+  }
+}
+
 export async function listCharacters(accountId: string): Promise<CharacterEntry[]> {
   const supabase = getServiceClient();
 
@@ -60,8 +73,9 @@ export async function listCharacters(accountId: string): Promise<CharacterEntry[
 export async function createCharacter(
   accountId: string,
   name: string,
-  jobId: string
+  _jobId?: string
 ): Promise<{ ok: true; character: CharacterEntry } | { ok: false; error: string }> {
+  const jobId = "novice";
   const supabase = getServiceClient();
 
   const jobDefaults: Record<string, { str: number; agi: number; vit: number; int: number; dex: number; luk: number; hpFactor: number; spFactor: number }> = {

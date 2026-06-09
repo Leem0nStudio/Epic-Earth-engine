@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { createServer } from "http";
 import { PlayerSession } from "./session/PlayerSession";
 import { verifyToken } from "./auth";
-import { listCharacters, createCharacter, selectCharacter } from "./db/characters";
+import { listCharacters, createCharacter, selectCharacter, ensureAccount } from "./db/characters";
 import { WorldRoom } from "./systems/WorldRoom";
 import type { ClientPacket, CZCharacterCreatePayload, CZCharacterSelectPayload, CZRequestMovePayload } from "@epic-earth/shared";
 import { PacketType } from "@epic-earth/shared";
@@ -66,6 +66,7 @@ async function handlePacket(session: PlayerSession, packet: ClientPacket): Promi
       session.username = result.username;
       session.authenticated = true;
 
+      await ensureAccount(result.accountId, result.username);
       const characters = await listCharacters(result.accountId);
       session.send(PacketType.ZC_AUTH_OK, {
         accountId: result.accountId,
