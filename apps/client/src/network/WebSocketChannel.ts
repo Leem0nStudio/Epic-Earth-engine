@@ -19,6 +19,7 @@ export class WebSocketChannel {
   private url: string;
   private callbacks: WebSocketCallbacks;
   private seq: number = 0;
+  private queue: string[] = [];
 
   constructor(url: string, callbacks: WebSocketCallbacks) {
     this.url = url;
@@ -29,9 +30,15 @@ export class WebSocketChannel {
     if (this.ws?.readyState === WebSocket.OPEN) return;
 
     this.ws = new WebSocket(this.url);
+    this.queue = [];
 
     this.ws.onopen = () => {
       console.log("[WS] connected");
+      // Flush queued messages
+      for (const msg of this.queue) {
+        this.ws?.send(msg);
+      }
+      this.queue = [];
     };
 
     this.ws.onmessage = (event: MessageEvent) => {
@@ -45,6 +52,7 @@ export class WebSocketChannel {
 
     this.ws.onclose = () => {
       console.log("[WS] disconnected");
+      this.queue = [];
       this.callbacks.onDisconnect();
     };
 
@@ -54,18 +62,21 @@ export class WebSocketChannel {
   }
 
   send<T>(type: ClientPacket["type"], payload: T): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) {
-      console.warn("[WS] cannot send, not connected");
-      return;
-    }
-
     const packet: ClientPacket = {
       type: type as any,
       seq: this.seq++,
       payload,
     } as ClientPacket;
 
-    this.ws.send(JSON.stringify(packet));
+    const raw = JSON.stringify(packet);
+
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(raw);
+    } else if (this.ws?.readyState === WebSocket.CONNECTING) {
+      this.queue.push(raw);
+    } else {
+      console.warn("[WS] cannot send, not connected");
+    }
   }
 
   auth(token: string): void {
