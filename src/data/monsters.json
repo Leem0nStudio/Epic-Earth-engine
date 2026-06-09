@@ -1,0 +1,88 @@
+{
+  "monsters": [
+    {
+      "id": "poring",
+      "name": "Poring",
+      "level": 1,
+      "hp": 50,
+      "sp": 10,
+      "baseXp": 2,
+      "jobXp": 1,
+      "size": "medium",
+      "race": "plant",
+      "element": "water1",
+      "stats": {
+        "str": 1,
+        "agi": 2,
+        "vit": 1,
+        "int": 1,
+        "dex": 5,
+        "luk": 5
+      },
+      "atkSpeed": 1000,
+      "moveSpeed": 1.5,
+      "aiType": "passive",
+      "drops": [
+        { "itemId": "jellopy", "rate": 0.70 },
+        { "itemId": "apple", "rate": 0.15 },
+        { "itemId": "poring_card", "rate": 0.0001 }
+      ]
+    },
+    {
+      "id": "lunatic",
+      "name": "Lunatic",
+      "level": 3,
+      "hp": 90,
+      "sp": 15,
+      "baseXp": 5,
+      "jobXp": 3,
+      "size": "small",
+      "race": "beast",
+      "element": "neutral1",
+      "stats": {
+        "str": 3,
+        "agi": 4,
+        "vit": 2,
+        "int": 1,
+        "dex": 7,
+        "luk": 10
+      },
+      "atkSpeed": 900,
+      "moveSpeed": 1.8,
+      "aiType": "passive",
+      "drops": [
+        { "itemId": "clover", "rate": 0.50 },
+        { "itemId": "feather", "rate": 0.20 },
+        { "itemId": "lunatic_card", "rate": 0.0001 }
+      ]
+    },
+    {
+      "id": "baphomet",
+      "name": "Baphomet",
+      "level": 81,
+      "hp": 560000,
+      "sp": 4000,
+      "baseXp": 125000,
+      "jobXp": 95000,
+      "size": "large",
+      "race": "demon",
+      "element": "shadow3",
+      "stats": {
+        "str": 95,
+        "agi": 82,
+        "vit": 70,
+        "int": 85,
+        "dex": 90,
+        "luk": 73
+      },
+      "atkSpeed": 350,
+      "moveSpeed": 3.0,
+      "aiType": "aggressive",
+      "drops": [
+        { "itemId": "baphomet_horns", "rate": 0.10 },
+        { "itemId": "evil_horn", "rate": 0.40 },
+        { "itemId": "baphomet_card", "rate": 0.0001 }
+      ]
+    }
+  ]
+}

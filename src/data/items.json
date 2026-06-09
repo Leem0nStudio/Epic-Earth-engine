@@ -1,0 +1,257 @@
+{
+  "items": [
+    {
+      "id": "jellopy",
+      "name": "Jellopy",
+      "type": "etc",
+      "description": "A small, slimy crystalline fragment. Extremely common.",
+      "buyPrice": 5,
+      "sellPrice": 3,
+      "weight": 1
+    },
+    {
+      "id": "red_potion",
+      "name": "Red Potion",
+      "type": "usable",
+      "description": "Heals approximately 45 HP when consumed.",
+      "buyPrice": 50,
+      "sellPrice": 25,
+      "weight": 2,
+      "effects": {
+        "healHp": 45
+      }
+    },
+    {
+      "id": "knife",
+      "name": "Knife [4]",
+      "type": "weapon",
+      "description": "A simple stabbing knife with 4 card slots.",
+      "buyPrice": 100,
+      "sellPrice": 50,
+      "weight": 40,
+      "weaponType": "dagger",
+      "slots": 4,
+      "effects": {
+        "atk": 17,
+        "requiredLevel": 1
+      }
+    },
+    {
+      "id": "composite_bow",
+      "name": "Composite Bow [4]",
+      "type": "weapon",
+      "description": "A light wood composite bow suited for archers.",
+      "buyPrice": 1000,
+      "sellPrice": 500,
+      "weight": 60,
+      "weaponType": "bow",
+      "slots": 4,
+      "effects": {
+        "atk": 29,
+        "requiredLevel": 1
+      }
+    },
+    {
+      "id": "iron_shield",
+      "name": "Iron Shield [1]",
+      "type": "shield",
+      "description": "A sturdy round iron shield.",
+      "buyPrice": 12000,
+      "sellPrice": 6000,
+      "weight": 160,
+      "slots": 1,
+      "effects": {
+        "def": 5,
+        "mdef": 0
+      }
+    },
+    {
+      "id": "apple_o_archer",
+      "name": "Apple of Archer",
+      "type": "headgear_upper",
+      "description": "An apple worn on the head that heightens focus. DEX +3.",
+      "buyPrice": 100000,
+      "sellPrice": 50000,
+      "weight": 20,
+      "slots": 0,
+      "effects": {
+        "dex": 3,
+        "def": 0
+      }
+    },
+    {
+      "id": "blessing_scroll",
+      "name": "Blessing Scroll",
+      "type": "usable",
+      "description": "Scroll containing divine spell BLESSING. STR +10, INT +10, DEX +10 for 60 seconds.",
+      "buyPrice": 500,
+      "sellPrice": 150,
+      "weight": 5,
+      "slots": 0,
+      "effects": {
+        "buffId": "buff_blessing",
+        "buffName": "Clementine Blessing",
+        "buffIcon": "🙌",
+        "buffDurationMs": 60000,
+        "buffEffects": {
+          "str": 10,
+          "int": 10,
+          "dex": 10
+        }
+      }
+    },
+    {
+      "id": "increase_agi_scroll",
+      "name": "Agi Up Scroll",
+      "type": "usable",
+      "description": "Speeds up muscle responsiveness. AGI +10 for 60 seconds.",
+      "buyPrice": 500,
+      "sellPrice": 150,
+      "weight": 5,
+      "slots": 0,
+      "effects": {
+        "buffId": "buff_agi_up",
+        "buffName": "Increase Agility",
+        "buffIcon": "⚡",
+        "buffDurationMs": 60000,
+        "buffEffects": {
+          "agi": 10
+        }
+      }
+    },
+    {
+      "id": "berserk_potion",
+      "name": "Awakening Potion",
+      "type": "usable",
+      "description": "Secret adrenaline brew. Boosts ASPD by +10% and FLEE +15 for 45s.",
+      "buyPrice": 800,
+      "sellPrice": 200,
+      "weight": 10,
+      "slots": 0,
+      "effects": {
+        "buffId": "buff_berserk",
+        "buffName": "Awakened Fury",
+        "buffIcon": "🧪",
+        "buffDurationMs": 45000,
+        "buffEffects": {
+          "aspdBonus": 8,
+          "flee": 15
+        }
+      }
+    },
+    {
+      "id": "grilled_griffin_food",
+      "name": "Grilled Griffin Food",
+      "type": "usable",
+      "description": "Tasty legendary cuisine. STR +5, VIT +5, MaxHP +150 for 120 seconds.",
+      "buyPrice": 1500,
+      "sellPrice": 400,
+      "weight": 15,
+      "slots": 0,
+      "effects": {
+        "buffId": "buff_grilled_griffin",
+        "buffName": "Grilled Griffin",
+        "buffIcon": "🍖",
+        "buffDurationMs": 120000,
+        "buffEffects": {
+          "str": 5,
+          "vit": 5,
+          "hpBonus": 150
+        }
+      }
+    },
+    {
+      "id": "honey_herbal_tea",
+      "name": "Honey Herbal Tea",
+      "type": "usable",
+      "description": "Steaming herbal relaxation. INT +8, Dex +5, MaxSP +80 for 120 seconds.",
+      "buyPrice": 1500,
+      "sellPrice": 400,
+      "weight": 12,
+      "slots": 0,
+      "effects": {
+        "buffId": "buff_honey_tea",
+        "buffName": "Honey Herbal Tea",
+        "buffIcon": "🍵",
+        "buffDurationMs": 120000,
+        "buffEffects": {
+          "int": 8,
+          "dex": 5,
+          "spBonus": 80
+        }
+      }
+    },
+    {
+      "id": "blue_potion",
+      "name": "Blue Potion",
+      "type": "usable",
+      "description": "A bottle containing magical indigo essence. Restores 35 SP immediately.",
+      "buyPrice": 120,
+      "sellPrice": 50,
+      "weight": 3,
+      "slots": 0,
+      "effects": {
+        "healSp": 35
+      }
+    },
+    {
+      "id": "valiant_crest",
+      "name": "Valiant Crest",
+      "type": "quest",
+      "description": "A polished golden crest awarded to valiant heroes. Highly active in custom class promotion quests.",
+      "buyPrice": 0,
+      "sellPrice": 0,
+      "weight": 1,
+      "slots": 0
+    },
+    {
+      "id": "baphomet_horn",
+      "name": "Baphomet Horn",
+      "type": "quest",
+      "description": "A massive curved demonic horn recovered from Baphomet. Whispers with ancient, dark memories.",
+      "buyPrice": 0,
+      "sellPrice": 0,
+      "weight": 5,
+      "slots": 0
+    },
+    {
+      "id": "pecopeco_feather",
+      "name": "Pecopeco Feather",
+      "type": "quest",
+      "description": "A bright yellow plume from a massive riding Pecopeco. Extremely light and soft.",
+      "buyPrice": 150,
+      "sellPrice": 40,
+      "weight": 1,
+      "slots": 0
+    },
+    {
+      "id": "yggdrasil_seed",
+      "name": "Yggdrasil Seed",
+      "type": "usable",
+      "description": "A seed from the mythical tree of life. Immediately restores 1000 HP and 250 SP.",
+      "buyPrice": 3000,
+      "sellPrice": 1000,
+      "weight": 15,
+      "slots": 0,
+      "effects": {
+        "healHp": 1000,
+        "healSp": 250
+      }
+    },
+    {
+      "id": "gladius_weapon",
+      "name": "Gladius [3]",
+      "type": "weapon",
+      "description": "A sturdy thrusting sword with 3 card slots, perfect for knights and swordmen.",
+      "buyPrice": 22000,
+      "sellPrice": 11000,
+      "weight": 70,
+      "weaponType": "one_handed_sword",
+      "slots": 3,
+      "effects": {
+        "atk": 105,
+        "requiredLevel": 12
+      }
+    }
+  ]
+}

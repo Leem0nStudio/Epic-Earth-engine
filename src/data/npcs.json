@@ -1,0 +1,26 @@
+{
+  "npcs": [
+    {
+      "id": "prontera_guide",
+      "name": "Guide",
+      "spriteSheetId": "npc_guide",
+      "interactions": [
+        {
+          "type": "dialogue",
+          "data": { "text": "Welcome to Prontera!" }
+        }
+      ]
+    },
+    {
+      "id": "warp_to_geffen",
+      "name": "Warp Portal",
+      "spriteSheetId": "npc_portal",
+      "interactions": [
+        {
+          "type": "warp",
+          "data": { "mapId": "geffen", "x": 100, "y": 100 }
+        }
+      ]
+    }
+  ]
+}

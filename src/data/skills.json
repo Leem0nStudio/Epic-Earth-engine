@@ -1,0 +1,117 @@
+{
+  "skills": [
+    {
+      "id": "basic_skill",
+      "name": "Basic Skill",
+      "maxLevel": 9,
+      "type": "passive",
+      "description": "Fundamental knowledge for every traveler. Enables trading, emotes, and job advancement.",
+      "levels": [
+        { "level": 1, "spCost": 0, "requirements": {} }
+      ]
+    },
+    {
+      "id": "bash",
+      "name": "Bash",
+      "maxLevel": 10,
+      "type": "active",
+      "description": "A heavy sword strike dealing amplified physical damage to a single enemy.",
+      "levels": [
+        { "level": 1, "spCost": 8, "range": 1, "castTime": 0, "cooldown": 0, "multiplier": 1.3, "requirements": {} },
+        { "level": 5, "spCost": 12, "range": 1, "castTime": 0, "cooldown": 0, "multiplier": 2.5, "requirements": {} },
+        { "level": 10, "spCost": 15, "range": 1, "castTime": 0, "cooldown": 0, "multiplier": 4.0, "requirements": {} }
+      ]
+    },
+    {
+      "id": "fire_bolt",
+      "name": "Fire Bolt",
+      "maxLevel": 10,
+      "type": "active",
+      "description": "Summons fire columns from the sky to incinerate a distant target.",
+      "levels": [
+        { "level": 1, "spCost": 12, "range": 9, "castTime": 1.0, "cooldown": 0.5, "multiplier": 1.5, "requirements": {} },
+        { "level": 5, "spCost": 20, "range": 9, "castTime": 2.5, "cooldown": 1.0, "multiplier": 5.0, "requirements": {} },
+        { "level": 10, "spCost": 30, "range": 9, "castTime": 4.0, "cooldown": 1.5, "multiplier": 11.0, "requirements": {} }
+      ]
+    },
+    {
+      "id": "double_strafe",
+      "name": "Double Strafe",
+      "maxLevel": 10,
+      "type": "active",
+      "description": "Unleashes two arrows in rapid succession, bypassing high defenses with speed.",
+      "levels": [
+        { "level": 1, "spCost": 12, "range": 9, "castTime": 0, "cooldown": 0.1, "multiplier": 1.8, "requirements": {} },
+        { "level": 5, "spCost": 15, "range": 9, "castTime": 0, "cooldown": 0.1, "multiplier": 2.8, "requirements": {} },
+        { "level": 10, "spCost": 18, "range": 9, "castTime": 0, "cooldown": 0.1, "multiplier": 4.2, "requirements": {} }
+      ]
+    },
+    {
+      "id": "mammonite",
+      "name": "Mammonite",
+      "maxLevel": 10,
+      "type": "active",
+      "description": "Strikes an enemy with excessive transactional force by using zeny to enhance damage.",
+      "levels": [
+        { "level": 1, "spCost": 5, "range": 1, "castTime": 0, "cooldown": 0.1, "multiplier": 1.5, "requirements": {} },
+        { "level": 5, "spCost": 5, "range": 1, "castTime": 0, "cooldown": 0.1, "multiplier": 3.5, "requirements": {} },
+        { "level": 10, "spCost": 5, "range": 1, "castTime": 0, "cooldown": 0.1, "multiplier": 6.0, "requirements": {} }
+      ]
+    },
+    {
+      "id": "heal",
+      "name": "Heal",
+      "maxLevel": 10,
+      "type": "active",
+      "description": "Restores an ally's or your own HP using sacred holy energies.",
+      "levels": [
+        { "level": 1, "spCost": 10, "range": 9, "castTime": 0.2, "cooldown": 0.2, "multiplier": 1.0, "requirements": {} },
+        { "level": 5, "spCost": 22, "range": 9, "castTime": 0.2, "cooldown": 0.2, "multiplier": 3.0, "requirements": {} },
+        { "level": 10, "spCost": 40, "range": 9, "castTime": 0.2, "cooldown": 0.2, "multiplier": 6.5, "requirements": {} }
+      ]
+    },
+    {
+      "id": "double_attack",
+      "name": "Double Attack",
+      "maxLevel": 10,
+      "type": "passive",
+      "description": "Gives a high chance to strike twice during basic knife and dagger attacks.",
+      "levels": [
+        { "level": 1, "spCost": 0, "requirements": {} }
+      ]
+    },
+    {
+      "id": "sonic_blow",
+      "name": "Sonic Blow",
+      "maxLevel": 10,
+      "type": "active",
+      "description": "Delivers 8 lightning-fast slashes with a Katar, stunning the target.",
+      "levels": [
+        { "level": 1, "spCost": 26, "range": 1, "castTime": 0, "cooldown": 1.0, "multiplier": 3.0, "requirements": {} },
+        { "level": 10, "spCost": 34, "range": 1, "castTime": 0, "cooldown": 1.0, "multiplier": 8.0, "requirements": {} }
+      ]
+    },
+    {
+      "id": "dragon_breath",
+      "name": "Dragon Breath",
+      "maxLevel": 10,
+      "type": "active",
+      "description": "Breathes devastating fire-dragon heat causing massive AoE burn damage, scaled by vital health.",
+      "levels": [
+        { "level": 1, "spCost": 30, "range": 7, "castTime": 1.5, "cooldown": 1.5, "multiplier": 4.0, "requirements": {} },
+        { "level": 10, "spCost": 50, "range": 7, "castTime": 2.5, "cooldown": 1.5, "multiplier": 12.0, "requirements": {} }
+      ]
+    },
+    {
+      "id": "arrow_storm",
+      "name": "Arrow Storm",
+      "maxLevel": 10,
+      "type": "active",
+      "description": "Fires a dense barrage of arrows that envelops an entire area in physical destruction.",
+      "levels": [
+        { "level": 1, "spCost": 40, "range": 9, "castTime": 1.0, "cooldown": 3.0, "multiplier": 5.0, "requirements": {} },
+        { "level": 10, "spCost": 60, "range": 9, "castTime": 2.0, "cooldown": 3.0, "multiplier": 15.0, "requirements": {} }
+      ]
+    }
+  ]
+}

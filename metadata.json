@@ -1,0 +1,6 @@
+{
+  "name": "Ragnarok MMORPG Core Architecture",
+  "description": "Data-driven, decoupled core system and ECS-lite foundation for a 2D/3D hybrid MMORPG inspired by Ragnarok Online, built with Next.js, React Three Fiber, and Zustand.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
