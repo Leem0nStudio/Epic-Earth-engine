@@ -77,7 +77,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         setNewCharName("");
         setCharError(null);
       },
-      onEnterWorld: (_payload: ZCEnterWorldPayload) => {
+      onEnterWorld: (payload: ZCEnterWorldPayload) => {
+        useGameStore.getState().setServerEnterWorld(payload);
         setPhase("ingame");
       },
       onEntitySpawn: handleEntitySpawn,

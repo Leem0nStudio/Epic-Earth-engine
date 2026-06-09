@@ -14,6 +14,7 @@ import jobsData from "../data/jobs.json";
 import monstersData from "../data/monsters.json";
 import skillsData from "../data/skills.json";
 import { getChannel } from "../network";
+import type { ZCEnterWorldPayload } from "@epic-earth/shared";
 
 const SKILLS_MAP = new Map(skillsData.skills.map((s: any) => [s.id, s]));
 import itemsData from "../data/items.json";
@@ -75,6 +76,10 @@ export interface GameState {
   monstersCatalog: any[];
   skillsCatalog: any[];
   itemsCatalog: ItemDefinition[];
+
+  // Server data from auth flow (used by spawnPlayer when set)
+  serverEnterWorld: ZCEnterWorldPayload | null;
+  setServerEnterWorld: (payload: ZCEnterWorldPayload) => void;
 
   // Store actions
   initializeGame: () => void;
@@ -170,6 +175,12 @@ export const useGameStore = create<GameState>((set, get) => {
       { id: "g_3", itemId: "red_potion", quantity: 2, x: 15, y: 17, droppedAt: Date.now() }
     ],
     
+    serverEnterWorld: null,
+
+    setServerEnterWorld: (payload: ZCEnterWorldPayload) => {
+      set({ serverEnterWorld: payload });
+    },
+
     // catalogs
     jobsCatalog: jobsData.jobs as unknown as JobDefinition[],
     monstersCatalog: monstersData.monsters,
@@ -177,15 +188,22 @@ export const useGameStore = create<GameState>((set, get) => {
     itemsCatalog: itemsData.items as unknown as ItemDefinition[],
 
     initializeGame: () => {
-      const { addLog } = get();
-      
-      addLog("System: Initializing Ragnarok RO Editor-Exported World...", "system");
-      
-      // Load initial map using our decoupled WorldLoader runtime
-      worldRuntime.loadMap("prontera_south", get(), 15, 12);
+      const { addLog, serverEnterWorld } = get();
 
-      set({ isInitializing: false });
-      addLog("System: World loaded. Explore the layout using portals.", "system");
+      addLog("System: Initializing world...", "system");
+
+      if (serverEnterWorld) {
+        const mapId = serverEnterWorld.mapId;
+        const sx = Math.round(serverEnterWorld.position.x);
+        const sy = Math.round(serverEnterWorld.position.y);
+        worldRuntime.loadMap(mapId, get(), sx, sy);
+        set({ isInitializing: false });
+        addLog(`System: Entering world on map ${mapId}.`, "system");
+      } else {
+        worldRuntime.loadMap("prontera_south", get(), 15, 12);
+        set({ isInitializing: false });
+        addLog("System: World loaded. Explore the layout using portals.", "system");
+      }
     },
 
     addLog: (message: string, type = "info") => {
@@ -331,73 +349,69 @@ export const useGameStore = create<GameState>((set, get) => {
     spawnPlayer: (name, jobId, x, y) => {
       const ecs = get().ecsWorld;
       const em = get().entityManager;
+      const sw = get().serverEnterWorld;
       const jobDesc = get().jobsCatalog.find((j) => j.id === jobId) || get().jobsCatalog[0];
 
-      // Default inventory with classic consumable buffs and equipments
-      const initialInventory = [
-        { slotId: 0, itemId: "red_potion", quantity: 15 },
-        { slotId: 1, itemId: "blue_potion", quantity: 10 },
-        { slotId: 2, itemId: "blessing_scroll", quantity: 5 },
-        { slotId: 3, itemId: "increase_agi_scroll", quantity: 5 },
-        { slotId: 4, itemId: "berserk_potion", quantity: 5 },
-        { slotId: 5, itemId: "grilled_griffin_food", quantity: 3 },
-        { slotId: 6, itemId: "honey_herbal_tea", quantity: 3 },
-        { slotId: 7, itemId: "knife", quantity: 1 },
-        { slotId: 8, itemId: "composite_bow", quantity: 1 },
-        { slotId: 9, itemId: "apple_o_archer", quantity: 1 },
-        { slotId: 10, itemId: "iron_shield", quantity: 1 },
-      ];
-
-      const baseStats = { str: 9, agi: 9, vit: 9, int: 9, dex: 9, luk: 9 };
-      const px = x !== undefined ? x : 15;
-      const py = y !== undefined ? y : 15;
+      const px = x !== undefined ? x : (sw ? Math.round(sw.position.x) : 15);
+      const py = y !== undefined ? y : (sw ? Math.round(sw.position.y) : 15);
       const playerPos = { x: px, y: py, z: 0, speed: 4.5, direction: 4 };
 
-      // Initialize the stats container with raw and baseline fields
-      const playerStats: any = {
-        baseStr: 9,
-        baseAgi: 9,
-        baseVit: 9,
-        baseInt: 9,
-        baseDex: 9,
-        baseLuk: 9,
-        str: 9,
-        agi: 9,
-        vit: 9,
-        int: 9,
-        dex: 9,
-        luk: 9,
-        currentHp: 100,
-        currentSp: 10,
-        baseHp: 100,
-        baseSp: 10,
-        maxHp: 100,
-        maxSp: 10,
-      };
+      let playerStats: any;
+      let finalName = name;
+      let finalJobId = jobId;
 
-      const player = new PlayerEntity("player_hero", name, jobId, playerPos, playerStats, "idle");
+      if (sw) {
+        const s = sw.stats;
+        finalName = sw.characterId;
+        finalJobId = "novice";
+        playerStats = {
+          baseStr: s.str, baseAgi: s.agi, baseVit: s.vit,
+          baseInt: s.int, baseDex: s.dex, baseLuk: s.luk,
+          str: s.str, agi: s.agi, vit: s.vit,
+          int: s.int, dex: s.dex, luk: s.luk,
+          currentHp: s.currentHp, currentSp: s.currentSp,
+          maxHp: s.maxHp, maxSp: s.maxSp,
+          baseHp: s.maxHp, baseSp: s.maxSp,
+          baseLevel: s.baseLevel, jobLevel: s.jobLevel,
+          baseXp: s.baseXp, jobXp: s.jobXp,
+        };
+        // Clear so subsequent map loads don't re-use it
+        set({ serverEnterWorld: null });
+      } else {
+        playerStats = {
+          baseStr: 9, baseAgi: 9, baseVit: 9, baseInt: 9, baseDex: 9, baseLuk: 9,
+          str: 9, agi: 9, vit: 9, int: 9, dex: 9, luk: 9,
+          currentHp: 100, currentSp: 10, baseHp: 100, baseSp: 10, maxHp: 100, maxSp: 10,
+        };
+      }
+
+      const player = new PlayerEntity("player_hero", finalName, finalJobId, playerPos, playerStats, "idle");
       player.components.inventory = {
-        slots: initialInventory,
+        slots: sw ? [] : [
+          { slotId: 0, itemId: "red_potion", quantity: 15 },
+          { slotId: 1, itemId: "blue_potion", quantity: 10 },
+          { slotId: 2, itemId: "blessing_scroll", quantity: 5 },
+          { slotId: 3, itemId: "increase_agi_scroll", quantity: 5 },
+          { slotId: 4, itemId: "berserk_potion", quantity: 5 },
+          { slotId: 5, itemId: "grilled_griffin_food", quantity: 3 },
+          { slotId: 6, itemId: "honey_herbal_tea", quantity: 3 },
+          { slotId: 7, itemId: "knife", quantity: 1 },
+          { slotId: 8, itemId: "composite_bow", quantity: 1 },
+          { slotId: 9, itemId: "apple_o_archer", quantity: 1 },
+          { slotId: 10, itemId: "iron_shield", quantity: 1 },
+        ],
         maxSlots: 100,
       };
       player.components.combat = {
-        isCasting: false,
-        castProgress: 0,
-        totalCastTime: 0,
-        lastAttackTime: 0,
-        attackCooldown: 1000,
-        activeSkill: undefined,
-        skills: [],
+        isCasting: false, castProgress: 0, totalCastTime: 0,
+        lastAttackTime: 0, attackCooldown: 1000,
+        activeSkill: undefined, skills: [],
       };
 
       ecs.registerExistingEntity(player);
       em.spawn(player);
-
-      get().addLog(`System: Player ${name} spawned as job ${jobDesc.name}.`, "system");
-      
-      // Centralized stats and breakdown recalculation
+      get().addLog(`System: Player ${finalName} spawned as job ${jobDesc.name}.`, "system");
       get().recalculatePlayerStats();
-      
       set({ gameTickCount: get().gameTickCount + 1 });
     },
 
