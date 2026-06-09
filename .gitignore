@@ -1,7 +1,8 @@
 node_modules/
+.turbo/
+dist/
 .next/
-coverage/
-.DS_Store
-*.log
-.env*
-!.env.example
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
