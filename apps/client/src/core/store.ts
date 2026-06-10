@@ -14,10 +14,10 @@ import jobsData from "../data/jobs.json";
 import monstersData from "../data/monsters.json";
 import skillsData from "../data/skills.json";
 import { getChannel } from "../network";
+import itemsData from "../data/items.json";
 import type { ZCEnterWorldPayload } from "@epic-earth/shared";
 
 const SKILLS_MAP = new Map(skillsData.skills.map((s: any) => [s.id, s]));
-import itemsData from "../data/items.json";
 
 export interface ActiveBuff {
   id: string;
@@ -362,8 +362,8 @@ export const useGameStore = create<GameState>((set, get) => {
 
       if (sw) {
         const s = sw.stats;
-        finalName = sw.characterId;
-        finalJobId = "novice";
+        finalName = sw.characterName;
+        finalJobId = sw.jobId;
         playerStats = {
           baseStr: s.str, baseAgi: s.agi, baseVit: s.vit,
           baseInt: s.int, baseDex: s.dex, baseLuk: s.luk,
@@ -1340,7 +1340,7 @@ export const useGameStore = create<GameState>((set, get) => {
         const monsters = entityManager.query({ type: "monster" });
         for (const mon of monsters) {
           const pos = mon.position;
-          if (!pos.targetX && Math.random() > 0.70) {
+          if (pos.targetX === undefined && Math.random() > 0.70) {
             // pick relative tile within map limits dynamically
             const range = 3;
             const limitX = get().currentMap.width - 2;
@@ -1379,7 +1379,7 @@ export const useGameStore = create<GameState>((set, get) => {
                     const targetEnt = ecsWorld.getEntity(combat.activeSkill.targetId);
                     if (targetEnt && targetEnt.components.stats) {
                         const dmg = Math.floor((ent.components.stats!.str + (ent.components.stats!.int || 0)) * (levelDef.multiplier || 1.0));
-                        targetEnt.components.stats.currentHp -= dmg;
+                        targetEnt.components.stats.currentHp = Math.max(0, targetEnt.components.stats.currentHp - dmg);
                         get().addLog(`Battle: ${ent.components.identity!.name} used ${skillDef.name} on ${targetEnt.components.identity!.name} (${dmg} dmg)!`, "battle");
                     }
                 }
@@ -1420,7 +1420,7 @@ export const useGameStore = create<GameState>((set, get) => {
                     const maxAtk = attackerStats.atkMax || 20;
                     const dmg = Math.floor(Math.random() * (maxAtk - minAtk + 1)) + minAtk;
                     
-                    targetStats.currentHp -= dmg;
+                    targetStats.currentHp = Math.max(0, targetStats.currentHp - dmg);
                     get().addLog(`Battle: ${ent.components.identity!.name} deals ${dmg} damage to ${targetEnt.components.identity!.name}!`, "battle");
                 }
              }
@@ -1478,11 +1478,7 @@ export const useGameStore = create<GameState>((set, get) => {
       }
 
       // Re-render trigger update
-      if (didStateChange || gameTickCount % 10 === 0) {
-        set({ gameTickCount: gameTickCount + 1 });
-      } else {
-        set((state) => ({ gameTickCount: state.gameTickCount + 1 }));
-      }
+      set((state) => ({ gameTickCount: state.gameTickCount + 1 }));
     },
   };
 });

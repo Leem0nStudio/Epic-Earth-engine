@@ -12,6 +12,11 @@ import { Plus, Power, RotateCcw, Swords, Shield, Heart, Zap, UserPlus } from "lu
 // Dynamically load the R3F Canvas without server SSR to avoid Next.js compilation discrepancies
 const ThreeCanvas = dynamic(() => import("./ThreeCanvas"), { ssr: false });
 
+function TickCounter() {
+  const tick = useGameStore((s) => s.gameTickCount);
+  return <span>WORLD_TICK: {tick}</span>;
+}
+
 export default function GameClient() {
   const [clock] = useState(() => new GameClock());
   const [customName, setCustomName] = useState("Pro Ragnarok Hero");
@@ -30,7 +35,6 @@ export default function GameClient() {
   const jobsCatalog = useGameStore((state) => state.jobsCatalog);
   const monstersCatalog = useGameStore((state) => state.monstersCatalog);
   const currentMap = useGameStore((state) => state.currentMap);
-  const gameTickCount = useGameStore((state) => state.gameTickCount);
   const entityManager = useGameStore((state) => state.entityManager);
 
   // Core Actions
@@ -144,21 +148,17 @@ export default function GameClient() {
   };
 
   useEffect(() => {
-    // Run an automatic benchmark of the entity spatial hashing system on every state tick safely
-    const pX = position?.x || 20;
-    const pY = position?.y || 20;
-    
-    const token = setTimeout(() => {
+    const timer = setInterval(() => {
+      const pX = position?.x || 20;
+      const pY = position?.y || 20;
       const t0 = window.performance.now();
       const results = entityManager.query({ near: { x: pX, y: pY, radius: 8 } });
       const t1 = window.performance.now();
-      
       setBenchElapsedMs(t1 - t0);
       setBenchMatches(results.length);
-    }, 0);
-
-    return () => clearTimeout(token);
-  }, [gameTickCount, position, entityManager]);
+    }, 250);
+    return () => clearInterval(timer);
+  }, [position, entityManager]);
 
   // Selected details
   const selectedEntity = selectedEntityId ? ecsWorld.getEntity(selectedEntityId) : null;
@@ -184,7 +184,7 @@ export default function GameClient() {
             SERVER: LOCALHOST:4000
           </span>
           <span>UPTIME: 00:14:42</span>
-          <span>WORLD_TICK: {gameTickCount}</span>
+          <TickCounter />
         </div>
         <div className="hidden sm:flex gap-6 items-center">
           <span className="text-blue-400">ZUSTAND_STORE: SYNCED</span>

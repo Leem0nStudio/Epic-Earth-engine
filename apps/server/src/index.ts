@@ -36,6 +36,11 @@ wss.on("connection", (ws: WebSocket) => {
       return;
     }
 
+    if (!session.checkRateLimit(packet.type)) {
+      session.send(PacketType.ZC_ERROR, { code: "RATE_LIMITED", message: "too many requests" });
+      return;
+    }
+
     handlePacket(session, packet).catch((err) => {
       console.error("[Server] handler error:", err);
       session.send(PacketType.ZC_ERROR, { code: "INTERNAL", message: "internal error" });
@@ -123,6 +128,8 @@ async function handlePacket(session: PlayerSession, packet: ClientPacket): Promi
 
       session.send(PacketType.ZC_ENTER_WORLD, {
         characterId: result.data.character.id,
+        characterName: result.data.character.name,
+        jobId: result.data.character.jobId,
         mapId: result.data.character.mapId,
         position: result.data.position,
         stats: result.data.stats,
@@ -143,9 +150,16 @@ async function handlePacket(session: PlayerSession, packet: ClientPacket): Promi
       const targetX = Math.round(payload.targetX);
       const targetY = Math.round(payload.targetY);
 
-      // Basic validation: keep within reasonable bounds
-      if (targetX < 0 || targetX > 500 || targetY < 0 || targetY > 500) {
+      // Bounds check using the session's map dimensions
+      if (targetX < 0 || targetX >= session.mapWidth || targetY < 0 || targetY >= session.mapHeight) {
         session.send(PacketType.ZC_ERROR, { code: "MOVE_INVALID", message: "out of bounds" });
+        return;
+      }
+
+      // Distance check: prevent teleportation (max ~15 tiles per move packet)
+      const dist = Math.abs(targetX - session.x) + Math.abs(targetY - session.y);
+      if (dist > 20) {
+        session.send(PacketType.ZC_ERROR, { code: "MOVE_INVALID", message: "move distance too large" });
         return;
       }
 

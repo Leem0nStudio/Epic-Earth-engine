@@ -70,25 +70,29 @@ export async function listCharacters(accountId: string): Promise<CharacterEntry[
   return (data as CharacterRow[]).map(rowToEntry);
 }
 
+const jobDefaults: Record<string, { str: number; agi: number; vit: number; int: number; dex: number; luk: number; hpFactor: number; spFactor: number }> = {
+  novice: { str: 5, agi: 5, vit: 5, int: 5, dex: 5, luk: 5, hpFactor: 6, spFactor: 1 },
+  swordman: { str: 9, agi: 4, vit: 7, int: 3, dex: 5, luk: 2, hpFactor: 14, spFactor: 2 },
+  mage: { str: 2, agi: 4, vit: 3, int: 9, dex: 7, luk: 5, hpFactor: 7, spFactor: 6 },
+  archer: { str: 4, agi: 7, vit: 3, int: 3, dex: 9, luk: 4, hpFactor: 9, spFactor: 3 },
+  acolyte: { str: 5, agi: 4, vit: 5, int: 7, dex: 5, luk: 4, hpFactor: 8, spFactor: 5 },
+  merchant: { str: 7, agi: 3, vit: 5, int: 5, dex: 5, luk: 5, hpFactor: 11, spFactor: 3 },
+  thief: { str: 5, agi: 9, vit: 3, int: 3, dex: 7, luk: 3, hpFactor: 10, spFactor: 2 },
+  knight: { str: 9, agi: 4, vit: 8, int: 3, dex: 5, luk: 2, hpFactor: 20, spFactor: 3 },
+  wizard: { str: 2, agi: 4, vit: 3, int: 9, dex: 7, luk: 5, hpFactor: 9, spFactor: 9 },
+  hunter: { str: 4, agi: 7, vit: 3, int: 3, dex: 9, luk: 4, hpFactor: 12, spFactor: 4 },
+  blacksmith: { str: 9, agi: 4, vit: 6, int: 3, dex: 6, luk: 3, hpFactor: 16, spFactor: 4 },
+};
+
 export async function createCharacter(
   accountId: string,
   name: string,
-  _jobId?: string
+  jobId?: string
 ): Promise<{ ok: true; character: CharacterEntry } | { ok: false; error: string }> {
-  const jobId = "novice";
+  const actualJobId = jobId && jobDefaults[jobId] ? jobId : "novice";
   const supabase = getServiceClient();
 
-  const jobDefaults: Record<string, { str: number; agi: number; vit: number; int: number; dex: number; luk: number; hpFactor: number; spFactor: number }> = {
-    novice: { str: 5, agi: 5, vit: 5, int: 5, dex: 5, luk: 5, hpFactor: 8, spFactor: 3 },
-    swordman: { str: 9, agi: 4, vit: 7, int: 3, dex: 5, luk: 2, hpFactor: 10, spFactor: 2 },
-    mage: { str: 2, agi: 4, vit: 3, int: 9, dex: 7, luk: 5, hpFactor: 5, spFactor: 6 },
-    archer: { str: 4, agi: 7, vit: 3, int: 3, dex: 9, luk: 4, hpFactor: 6, spFactor: 4 },
-    acolyte: { str: 5, agi: 4, vit: 5, int: 7, dex: 5, luk: 4, hpFactor: 7, spFactor: 5 },
-    merchant: { str: 7, agi: 3, vit: 5, int: 5, dex: 5, luk: 5, hpFactor: 9, spFactor: 3 },
-    thief: { str: 5, agi: 9, vit: 3, int: 3, dex: 7, luk: 3, hpFactor: 7, spFactor: 3 },
-  };
-
-  const defaults = jobDefaults[jobId] ?? jobDefaults.novice;
+  const defaults = jobDefaults[actualJobId] ?? jobDefaults.novice;
   const baseLevel = 1;
   const jobLevel = 1;
 
@@ -103,7 +107,7 @@ export async function createCharacter(
     .insert({
       account_id: accountId,
       name,
-      job_id: jobId,
+      job_id: actualJobId,
       base_level: baseLevel,
       job_level: jobLevel,
       base_xp: 0,
@@ -190,17 +194,8 @@ export async function selectCharacter(
     int: row.int, dex: row.dex, luk: row.luk,
   };
 
-  const jobHpFactors: Record<string, number> = {
-    novice: 8, swordman: 10, mage: 5, archer: 6, acolyte: 7, merchant: 9, thief: 7,
-  };
-  const jobSpFactors: Record<string, number> = {
-    novice: 3, swordman: 2, mage: 6, archer: 4, acolyte: 5, merchant: 3, thief: 3,
-  };
-
-  const hpFactor = jobHpFactors[row.job_id] ?? 8;
-  const spFactor = jobSpFactors[row.job_id] ?? 3;
-
-  const derived = calculateDerivedStats(primary, row.base_level, hpFactor, spFactor);
+  const jd = jobDefaults[row.job_id] ?? jobDefaults.novice;
+  const derived = calculateDerivedStats(primary, row.base_level, jd.hpFactor, jd.spFactor);
 
   return {
     ok: true,

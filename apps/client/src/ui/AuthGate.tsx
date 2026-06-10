@@ -5,7 +5,12 @@ import { supabase } from "../lib/supabase";
 import { WebSocketChannel } from "../network/WebSocketChannel";
 import { setChannel } from "../network";
 import { useGameStore } from "../core/store";
-import type { CharacterEntry, ZCEnterWorldPayload, EntitySnapshot } from "@epic-earth/shared";
+import type {
+  CharacterEntry, ZCEnterWorldPayload, EntitySnapshot,
+  ZCEntityDamagePayload, ZCEntityDeathPayload, ZCEntityUpdatePayload,
+  ZCMapLoadPayload, ZCHpSpUpdatePayload, ZCExpUpdatePayload,
+  ZCLevelUpPayload, ZCInventoryUpdatePayload, ZCSkillCastPayload, ZCChatMessagePayload,
+} from "@epic-earth/shared";
 
 type AuthPhase = "login" | "characters" | "entering" | "ingame";
 
@@ -84,6 +89,72 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       onEntitySpawn: handleEntitySpawn,
       onEntityDespawn: handleEntityDespawn,
       onEntityMove: handleEntityMove,
+      onEntityAttack: (_attackerId, _targetId) => {
+        // future: trigger attack animation
+      },
+      onEntityDamage: (payload: ZCEntityDamagePayload) => {
+        const ecs = useGameStore.getState().ecsWorld;
+        const target = ecs.getEntity(payload.targetId);
+        if (target?.components.stats) {
+          target.components.stats.currentHp = Math.max(0, target.components.stats.currentHp - payload.damage);
+        }
+      },
+      onEntityDeath: (payload: ZCEntityDeathPayload) => {
+        const store = useGameStore.getState();
+        store.ecsWorld.removeEntity(payload.entityId);
+        store.entityManager.despawn(payload.entityId);
+        store.addLog(`Entity ${payload.entityId} has been defeated.`, "battle");
+      },
+      onEntityUpdate: (payload: ZCEntityUpdatePayload) => {
+        const ecs = useGameStore.getState().ecsWorld;
+        const ent = ecs.getEntity(payload.entityId);
+        if (!ent) return;
+        if (payload.position && ent.components.position) {
+          ent.components.position.x = payload.position.x;
+          ent.components.position.y = payload.position.y;
+          ent.components.position.z = payload.position.z;
+        }
+        if (payload.hpPercent !== undefined && ent.components.stats) {
+          ent.components.stats.currentHp = Math.round((payload.hpPercent / 100) * ent.components.stats.maxHp);
+        }
+      },
+      onMapLoad: (_payload: ZCMapLoadPayload) => {
+        // future: load map from server data
+      },
+      onHpSpUpdate: (payload: ZCHpSpUpdatePayload) => {
+        const ecs = useGameStore.getState().ecsWorld;
+        const player = ecs.getEntity(useGameStore.getState().playerEntityId);
+        if (player?.components.stats) {
+          player.components.stats.currentHp = payload.currentHp;
+          player.components.stats.maxHp = payload.maxHp;
+          player.components.stats.currentSp = payload.currentSp;
+          player.components.stats.maxSp = payload.maxSp;
+        }
+      },
+      onExpUpdate: (_payload: ZCExpUpdatePayload) => {
+        // future: update XP bars
+      },
+      onLevelUp: (_payload: ZCLevelUpPayload) => {
+        useGameStore.getState().addLog("You leveled up!", "system");
+      },
+      onInventoryUpdate: (_payload: ZCInventoryUpdatePayload) => {
+        // future: sync inventory from server
+      },
+      onSkillCast: (_payload: ZCSkillCastPayload) => {
+        // future: trigger skill cast vfx
+      },
+      onChatMessage: (payload: ZCChatMessagePayload) => {
+        useGameStore.getState().addLog(
+          `[${payload.type}] ${payload.senderName || payload.senderId}: ${payload.message}`,
+          "chat",
+        );
+      },
+      onPong: () => {
+        // future: track latency
+      },
+      onReconnecting: (attempt) => {
+        console.log(`[WS] reconnecting attempt ${attempt}...`);
+      },
       onError: (code, message) => {
         setCharError(`${code}: ${message}`);
       },

@@ -125,6 +125,8 @@ export interface CharacterEntry {
 
 export interface ZCEnterWorldPayload {
   characterId: string;
+  characterName: string;
+  jobId: string;
   mapId: string;
   position: Position;
   stats: {
@@ -154,6 +156,12 @@ export interface ZCEntitySpawnPayload {
 
 export interface ZCEntityDespawnPayload {
   entityId: string;
+}
+
+export interface ZCEntityAttackPayload {
+  attackerId: string;
+  targetId: string;
+  skillId?: string;
 }
 
 export interface ZCEntityMovePayload {
@@ -256,6 +264,7 @@ export type ServerPacket =
   | Packet<ZCEnterWorldPayload> & { type: PacketType.ZC_ENTER_WORLD }
   | Packet<ZCEntitySpawnPayload> & { type: PacketType.ZC_ENTITY_SPAWN }
   | Packet<ZCEntityDespawnPayload> & { type: PacketType.ZC_ENTITY_DESPAWN }
+  | Packet<ZCEntityAttackPayload> & { type: PacketType.ZC_ENTITY_ATTACK }
   | Packet<ZCEntityMovePayload> & { type: PacketType.ZC_ENTITY_MOVE }
   | Packet<ZCEntityDamagePayload> & { type: PacketType.ZC_ENTITY_DAMAGE }
   | Packet<ZCEntityDeathPayload> & { type: PacketType.ZC_ENTITY_DEATH }

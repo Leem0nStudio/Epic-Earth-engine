@@ -40,6 +40,7 @@ export type {
   ZCEnterWorldPayload,
   ZCEntitySpawnPayload,
   ZCEntityDespawnPayload,
+  ZCEntityAttackPayload,
   ZCEntityMovePayload,
   ZCEntityDamagePayload,
   ZCEntityDeathPayload,

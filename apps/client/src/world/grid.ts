@@ -9,6 +9,56 @@ interface AStarNode {
   parent: AStarNode | null;
 }
 
+class BinaryHeap<T> {
+  private data: T[] = [];
+  private compare: (a: T, b: T) => number;
+
+  constructor(compare: (a: T, b: T) => number) {
+    this.compare = compare;
+  }
+
+  get size() { return this.data.length; }
+
+  push(item: T) {
+    this.data.push(item);
+    this._bubbleUp(this.data.length - 1);
+  }
+
+  pop(): T | undefined {
+    if (this.data.length === 0) return undefined;
+    const top = this.data[0];
+    const last = this.data.pop()!;
+    if (this.data.length > 0) {
+      this.data[0] = last;
+      this._sinkDown(0);
+    }
+    return top;
+  }
+
+  private _bubbleUp(idx: number) {
+    while (idx > 0) {
+      const parent = (idx - 1) >> 1;
+      if (this.compare(this.data[idx], this.data[parent]) >= 0) break;
+      [this.data[idx], this.data[parent]] = [this.data[parent], this.data[idx]];
+      idx = parent;
+    }
+  }
+
+  private _sinkDown(idx: number) {
+    const lastIdx = this.data.length - 1;
+    while (true) {
+      let smallest = idx;
+      const left = (idx << 1) + 1;
+      const right = left + 1;
+      if (left <= lastIdx && this.compare(this.data[left], this.data[smallest]) < 0) smallest = left;
+      if (right <= lastIdx && this.compare(this.data[right], this.data[smallest]) < 0) smallest = right;
+      if (smallest === idx) break;
+      [this.data[idx], this.data[smallest]] = [this.data[smallest], this.data[idx]];
+      idx = smallest;
+    }
+  }
+}
+
 /**
  * Finds the shortest path between two points on the map using the A* pathfinding algorithm.
  */
@@ -38,27 +88,33 @@ export function findPath(
     return null; // Can't walk to blocked cells
   }
 
-  const openList: AStarNode[] = [];
-  const closedList = new Set<string>();
+  const openHeap = new BinaryHeap<AStarNode>((a, b) => a.f - b.f);
+  const openSet = new Map<string, AStarNode>();
+  const closedSet = new Set<string>();
 
+  const getPosKey = (x: number, y: number) => `${x},${y}`;
+
+  const dx0 = Math.abs(startX - endX);
+  const dy0 = Math.abs(startY - endY);
   const startNode: AStarNode = {
     x: startX,
     y: startY,
     g: 0,
-    h: Math.abs(startX - endX) + Math.abs(startY - endY),
+    h: Math.min(dx0, dy0) * 14 + Math.abs(dx0 - dy0) * 10,
     f: 0,
     parent: null,
   };
   startNode.f = startNode.g + startNode.h;
-  openList.push(startNode);
+  openHeap.push(startNode);
+  openSet.set(getPosKey(startX, startY), startNode);
 
-  const getPosKey = (x: number, y: number) => `${x},${y}`;
-
-  while (openList.length > 0) {
-    // Sort to find lowest F score
-    openList.sort((a, b) => a.f - b.f);
-    const current = openList.shift()!;
-    closedList.add(getPosKey(current.x, current.y));
+  while (openHeap.size > 0) {
+    const current = openHeap.pop()!;
+    const currentKey = getPosKey(current.x, current.y);
+    // Lazy deletion: skip if this node was already closed via a better path
+    if (!openSet.has(currentKey)) continue;
+    openSet.delete(currentKey);
+    closedSet.add(currentKey);
 
     // Reached destination!
     if (current.x === endX && current.y === endY) {
@@ -111,7 +167,7 @@ export function findPath(
       }
 
       const neighborKey = getPosKey(newX, newY);
-      if (closedList.has(neighborKey)) {
+      if (closedSet.has(neighborKey)) {
         continue;
       }
 
@@ -119,10 +175,12 @@ export function findPath(
       const jumpCost = d.dx !== 0 && d.dy !== 0 ? 14 : 10;
       const gScore = current.g + jumpCost;
 
-      const existingOpen = openList.find((n) => n.x === newX && n.y === newY);
+      const existingOpen = openSet.get(neighborKey);
 
       if (!existingOpen) {
-        const hScore = (Math.abs(newX - endX) + Math.abs(newY - endY)) * 10;
+        const dx = Math.abs(newX - endX);
+        const dy = Math.abs(newY - endY);
+        const hScore = Math.min(dx, dy) * 14 + Math.abs(dx - dy) * 10;
         const neighborNode: AStarNode = {
           x: newX,
           y: newY,
@@ -131,11 +189,21 @@ export function findPath(
           f: gScore + hScore,
           parent: current,
         };
-        openList.push(neighborNode);
+        openHeap.push(neighborNode);
+        openSet.set(neighborKey, neighborNode);
       } else if (gScore < existingOpen.g) {
-        existingOpen.g = gScore;
-        existingOpen.f = gScore + existingOpen.h;
-        existingOpen.parent = current;
+        // Push a new node with the improved g-score; the stale entry in the heap
+        // will be skipped via lazy deletion (key missing from openSet).
+        const newNode: AStarNode = {
+          x: newX,
+          y: newY,
+          g: gScore,
+          h: existingOpen.h,
+          f: gScore + existingOpen.h,
+          parent: current,
+        };
+        openHeap.push(newNode);
+        openSet.set(neighborKey, newNode);
       }
     }
   }
