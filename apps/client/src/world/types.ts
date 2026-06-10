@@ -37,6 +37,7 @@ export interface PortalDefinition {
   targetMapId: string;
   targetX: number;
   targetY: number;
+  radius?: number;
 }
 
 export interface NpcDefinition {

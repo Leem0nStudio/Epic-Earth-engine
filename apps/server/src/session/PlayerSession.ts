@@ -34,12 +34,30 @@ export class PlayerSession {
   public characterName: string | null = null;
   public jobId: string | null = null;
   public baseLevel: number = 1;
+  public jobLevel: number = 1;
+  public baseXp: number = 0;
+  public jobXp: number = 0;
+  public xpNeededBase: number = 50;
+  public xpNeededJob: number = 50;
+  public statPoints: number = 0;
+  public skillPoints: number = 5;
   public x: number = 15;
   public y: number = 15;
   public mapWidth: number = 200;
   public mapHeight: number = 200;
   public authenticated: boolean = false;
   public selectedCharacter: boolean = false;
+
+  // Skill / combat state
+  public skillLevels: Map<string, number> = new Map(); // skillId → learned level
+  public currentHp: number = 100;
+  public currentSp: number = 10;
+  public maxHp: number = 100;
+  public maxSp: number = 10;
+  public stats: { str: number; agi: number; vit: number; int: number; dex: number; luk: number; atkMin: number; atkMax: number } = {
+    str: 9, agi: 9, vit: 9, int: 9, dex: 9, luk: 9,
+    atkMin: 10, atkMax: 20,
+  };
 
   private _seq: number = 0;
   private rateBuckets: Map<string, RateBucket> = new Map();
@@ -60,27 +78,39 @@ export class PlayerSession {
     this.ws.send(JSON.stringify(packet));
   }
 
-  checkRateLimit(type: ClientPacket["type"]): boolean {
-    const group = getPacketRateGroup(type);
-    const limit = RATE_LIMITS[group] ?? RATE_LIMITS.default;
+  private consumeBucket(bucket: RateBucket, limit: { maxTokens: number; refillIntervalMs: number }): boolean {
     const now = Date.now();
-
-    let bucket = this.rateBuckets.get(group);
-    if (!bucket) {
-      bucket = { tokens: limit.maxTokens, lastRefill: now };
-      this.rateBuckets.set(group, bucket);
-    }
-
     const elapsed = now - bucket.lastRefill;
     const refillTokens = Math.floor(elapsed / limit.refillIntervalMs);
     if (refillTokens > 0) {
       bucket.tokens = Math.min(limit.maxTokens, bucket.tokens + refillTokens);
       bucket.lastRefill = now;
     }
-
     if (bucket.tokens <= 0) return false;
     bucket.tokens--;
     return true;
+  }
+
+  checkRateLimit(type: ClientPacket["type"]): boolean {
+    const group = getPacketRateGroup(type);
+    const limit = RATE_LIMITS[group] ?? RATE_LIMITS.default;
+    const now = Date.now();
+
+    // Per-group bucket
+    let bucket = this.rateBuckets.get(group);
+    if (!bucket) {
+      bucket = { tokens: limit.maxTokens, lastRefill: now };
+      this.rateBuckets.set(group, bucket);
+    }
+    if (!this.consumeBucket(bucket, limit)) return false;
+
+    // Global bucket: max 30 packets/sec per connection
+    let globalBucket = this.rateBuckets.get("__global__");
+    if (!globalBucket) {
+      globalBucket = { tokens: 30, lastRefill: now };
+      this.rateBuckets.set("__global__", globalBucket);
+    }
+    return this.consumeBucket(globalBucket, { maxTokens: 30, refillIntervalMs: 1000 });
   }
 
   handlePacket(packet: ClientPacket): void {

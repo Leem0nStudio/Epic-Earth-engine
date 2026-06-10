@@ -1,12 +1,12 @@
 import { PlayerSession } from "../session/PlayerSession";
-import { PacketType, type EntitySnapshot } from "@epic-earth/shared";
+import { PacketType, type EntitySnapshot, type ServerPacket } from "@epic-earth/shared";
 
 export class WorldRoom {
   private static maps = new Map<string, Set<PlayerSession>>();
 
-  static join(session: PlayerSession): void {
+  static join(session: PlayerSession): EntitySnapshot[] {
     const mapId = session.mapId;
-    if (!mapId) return;
+    if (!mapId) return [];
 
     if (!WorldRoom.maps.has(mapId)) {
       WorldRoom.maps.set(mapId, new Set());
@@ -15,8 +15,11 @@ export class WorldRoom {
     const players = WorldRoom.maps.get(mapId)!;
     players.add(session);
 
+    // Snapshot the existing players before adding the new one (avoids concurrent modification)
+    const existing = Array.from(players);
+
     // Notify others in the map about the new player
-    const snapshot: EntitySnapshot = {
+    const newSnapshot: EntitySnapshot = {
       id: session.characterId!,
       type: "player",
       position: { x: session.x, y: session.y, z: 0 },
@@ -27,14 +30,14 @@ export class WorldRoom {
       hpPercent: 100,
     };
 
-    for (const other of players) {
+    for (const other of existing) {
       if (other === session) continue;
-      other.send(PacketType.ZC_ENTITY_SPAWN, { entity: snapshot });
+      other.send(PacketType.ZC_ENTITY_SPAWN, { entity: newSnapshot });
     }
 
-    // Send existing players to the joining player
+    // Build snapshots of existing players for the joiner
     const existingSnapshots: EntitySnapshot[] = [];
-    for (const other of players) {
+    for (const other of existing) {
       if (other === session) continue;
       existingSnapshots.push({
         id: other.characterId!,
@@ -48,12 +51,7 @@ export class WorldRoom {
       });
     }
 
-    if (existingSnapshots.length > 0) {
-      // Send spawns one by one (or we could add a bulk spawn packet)
-      for (const snap of existingSnapshots) {
-        session.send(PacketType.ZC_ENTITY_SPAWN, { entity: snap });
-      }
-    }
+    return existingSnapshots;
   }
 
   static leave(session: PlayerSession): void {
@@ -77,7 +75,7 @@ export class WorldRoom {
     }
   }
 
-  static broadcast(mapId: string, packetType: any, payload: any, exclude?: PlayerSession): void {
+  static broadcast(mapId: string, packetType: ServerPacket["type"], payload: unknown, exclude?: PlayerSession): void {
     const players = WorldRoom.maps.get(mapId);
     if (!players) return;
 
@@ -87,12 +85,22 @@ export class WorldRoom {
     }
   }
 
-  static broadcastIncludingSelf(mapId: string, packetType: any, payload: any): void {
+  static broadcastIncludingSelf(mapId: string, packetType: ServerPacket["type"], payload: unknown): void {
     const players = WorldRoom.maps.get(mapId);
     if (!players) return;
 
     for (const session of players) {
       session.send(packetType, payload);
     }
+  }
+
+  static getSessions(mapId: string): PlayerSession[] {
+    const players = WorldRoom.maps.get(mapId);
+    if (!players) return [];
+    return Array.from(players);
+  }
+
+  static getAllMapIds(): string[] {
+    return Array.from(WorldRoom.maps.keys());
   }
 }

@@ -145,6 +145,7 @@ function ClickHandler({ entityGroupRef, tileGroupRef }: { entityGroupRef: React.
   const { gl, camera } = useThree();
   const selectEntity = useGameStore((s) => s.selectEntity);
   const movePlayerTo = useGameStore((s) => s.movePlayerTo);
+  const attackEntity = useGameStore((s) => s.attackEntity);
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -164,7 +165,14 @@ function ClickHandler({ entityGroupRef, tileGroupRef }: { entityGroupRef: React.
           let obj: THREE.Object3D | null = hits[0].object;
           while (obj && !obj.userData.entityId) obj = obj.parent;
           if (obj && obj.userData.entityId) {
-            selectEntity(obj.userData.entityId);
+            const clickedId = obj.userData.entityId;
+            selectEntity(clickedId);
+            // Attack monsters on click
+            const ecs = useGameStore.getState().ecsWorld;
+            const ent = ecs.getEntity(clickedId);
+            if (ent && ent.components.identity?.type === "monster") {
+              attackEntity(clickedId);
+            }
             return;
           }
         }
@@ -185,7 +193,7 @@ function ClickHandler({ entityGroupRef, tileGroupRef }: { entityGroupRef: React.
     };
     gl.domElement.addEventListener("click", handler);
     return () => gl.domElement.removeEventListener("click", handler);
-  }, [gl, camera, selectEntity, movePlayerTo, entityGroupRef, tileGroupRef]);
+  }, [gl, camera, selectEntity, movePlayerTo, attackEntity, entityGroupRef, tileGroupRef]);
 
   return null;
 }

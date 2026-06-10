@@ -4,6 +4,7 @@ import type {
   ZCEntityDamagePayload, ZCEntityDeathPayload, ZCEntityUpdatePayload,
   ZCMapLoadPayload, ZCHpSpUpdatePayload, ZCExpUpdatePayload,
   ZCLevelUpPayload, ZCInventoryUpdatePayload, ZCSkillCastPayload, ZCChatMessagePayload,
+  ZCMapChangePayload,
 } from "@epic-earth/shared";
 
 export interface WebSocketCallbacks {
@@ -20,6 +21,7 @@ export interface WebSocketCallbacks {
   onEntityDeath: (payload: ZCEntityDeathPayload) => void;
   onEntityUpdate: (payload: ZCEntityUpdatePayload) => void;
   onMapLoad: (payload: ZCMapLoadPayload) => void;
+  onMapChange: (payload: ZCMapChangePayload) => void;
   onHpSpUpdate: (payload: ZCHpSpUpdatePayload) => void;
   onExpUpdate: (payload: ZCExpUpdatePayload) => void;
   onLevelUp: (payload: ZCLevelUpPayload) => void;
@@ -46,6 +48,7 @@ export class WebSocketChannel {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldReconnect: boolean = true;
   private intentionalClose: boolean = false;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(url: string, callbacks: WebSocketCallbacks) {
     this.url = url;
@@ -54,7 +57,6 @@ export class WebSocketChannel {
 
   private createSocket(): void {
     this.ws = new WebSocket(this.url);
-    this.queue = [];
 
     this.ws.onopen = () => {
       console.log("[WS] connected");
@@ -62,10 +64,15 @@ export class WebSocketChannel {
       if (this.authToken) {
         this.auth(this.authToken);
       }
-      for (const msg of this.queue) {
+      // Drain any messages queued during CONNECTING
+      const pending = this.queue;
+      this.queue = [];
+      for (const msg of pending) {
         this.ws?.send(msg);
       }
-      this.queue = [];
+      this.pingInterval = setInterval(() => {
+        this.send(PacketType.CZ_PING, {});
+      }, 30000);
     };
 
     this.ws.onmessage = (event: MessageEvent) => {
@@ -80,7 +87,11 @@ export class WebSocketChannel {
     this.ws.onclose = () => {
       console.log("[WS] disconnected");
       this.ws = null;
-      this.queue = [];
+      // Keep queued messages for reconnection
+      if (this.pingInterval) {
+        clearInterval(this.pingInterval);
+        this.pingInterval = null;
+      }
       if (!this.intentionalClose && this.shouldReconnect) {
         this.scheduleReconnect();
       } else {
@@ -152,12 +163,32 @@ export class WebSocketChannel {
     this.send(PacketType.CZ_REQUEST_MOVE, { targetX: x, targetY: y });
   }
 
+  requestUseSkill(skillId: string, level: number, targetId?: string, targetX?: number, targetY?: number): void {
+    this.send(PacketType.CZ_REQUEST_USE_SKILL, { skillId, level, targetId, targetX, targetY });
+  }
+
+  requestAttack(targetEntityId: string): void {
+    this.send(PacketType.CZ_REQUEST_ATTACK, { targetEntityId });
+  }
+
+  requestRevive(characterId: string): void {
+    this.send(PacketType.CZ_REQUEST_REVIVE, { characterId });
+  }
+
+  requestWarp(portalId: string, targetMapId: string, targetX: number, targetY: number): void {
+    this.send(PacketType.CZ_REQUEST_WARP, { portalId, targetMapId, targetX, targetY });
+  }
+
   disconnect(): void {
     this.intentionalClose = true;
     this.shouldReconnect = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
     }
     if (this.ws) {
       this.ws.close();
@@ -254,6 +285,10 @@ export class WebSocketChannel {
       }
       case PacketType.ZC_PONG: {
         this.callbacks.onPong();
+        break;
+      }
+      case PacketType.ZC_MAP_CHANGE: {
+        this.callbacks.onMapChange(packet.payload as ZCMapChangePayload);
         break;
       }
       case PacketType.ZC_ERROR: {

@@ -67,7 +67,8 @@ export function findPath(
   startX: number,
   startY: number,
   endX: number,
-  endY: number
+  endY: number,
+  blockedCells?: Set<string>
 ): [number, number][] | null {
   // Guard bounds
   if (
@@ -167,6 +168,11 @@ export function findPath(
       }
 
       const neighborKey = getPosKey(newX, newY);
+
+      // Blocked by another entity? allow if target cell
+      if (blockedCells?.has(neighborKey) && !(newX === endX && newY === endY)) {
+        continue;
+      }
       if (closedSet.has(neighborKey)) {
         continue;
       }

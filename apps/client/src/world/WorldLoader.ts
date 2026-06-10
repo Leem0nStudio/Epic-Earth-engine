@@ -1,13 +1,32 @@
+import { MAP_CATALOG } from "@epic-earth/shared";
 import { MapExportJSON, MapInstance, PortalDefinition } from "./types";
 import { MapLoader } from "./MapLoader";
 import { RegionManager } from "./RegionManager";
 import { PortalManager } from "./PortalManager";
 import { SpawnManager } from "./SpawnManager";
 
-// Static JSON imports exported straight from the Map Editor
+// Static JSON imports — each map in the catalog must have a corresponding import here
 import pronteraSouthRaw from "../data/world/prontera_south.json";
 import pronteraCityRaw from "../data/world/prontera_city.json";
 import dungeonF1Raw from "../data/world/dungeon_f1.json";
+
+function loadMapRegistry(): Map<string, MapExportJSON> {
+  const rawMap: Record<string, MapExportJSON> = {
+    prontera_south: pronteraSouthRaw as unknown as MapExportJSON,
+    prontera_city: pronteraCityRaw as unknown as MapExportJSON,
+    dungeon_f1: dungeonF1Raw as unknown as MapExportJSON,
+  };
+  const registry = new Map<string, MapExportJSON>();
+  for (const id of MAP_CATALOG) {
+    const data = rawMap[id];
+    if (data) {
+      registry.set(id, data);
+    } else {
+      console.warn(`[WorldLoader] map "${id}" in catalog but no JSON import found`);
+    }
+  }
+  return registry;
+}
 
 /**
  * WorldLoader: The master runtime class orchestrating multiple map assets,
@@ -186,6 +205,9 @@ export class WorldLoader {
       entityManager: any;
       playerEntityId: string;
       currentMap: MapInstance;
+    },
+    opts?: {
+      requestWarp?: (portalId: string, targetMapId: string, targetX: number, targetY: number) => void;
     }
   ) {
     if (!this.currentMapInstance) return;
@@ -212,14 +234,19 @@ export class WorldLoader {
       const crossedPortal = this.portalManager.checkOverlap(pX, pY);
       if (crossedPortal) {
         store.addLog(`Portal: Stepping into gateway threshold [${crossedPortal.id}]...`, "system");
-        
-        // Execute map transition!
-        this.loadMap(
-          crossedPortal.targetMapId,
-          store,
-          crossedPortal.targetX,
-          crossedPortal.targetY
-        );
+
+        if (opts?.requestWarp) {
+          // Server-authoritative warp
+          opts.requestWarp(crossedPortal.id, crossedPortal.targetMapId, crossedPortal.targetX, crossedPortal.targetY);
+        } else {
+          // Local warp (offline / single-player fallback)
+          this.loadMap(
+            crossedPortal.targetMapId,
+            store,
+            crossedPortal.targetX,
+            crossedPortal.targetY
+          );
+        }
       }
     }
   }

@@ -137,6 +137,7 @@ export class MapLoader {
       targetMapId: p.targetMapId,
       targetX: p.targetX,
       targetY: p.targetY,
+      radius: (p as any).radius ?? 0.5,
     }));
 
     const npcs = definition.spawns.npcs.map((n) => ({

@@ -8,17 +8,18 @@ import { useGameStore } from "../core/store";
 import type {
   CharacterEntry, ZCEnterWorldPayload, EntitySnapshot,
   ZCEntityDamagePayload, ZCEntityDeathPayload, ZCEntityUpdatePayload,
-  ZCMapLoadPayload, ZCHpSpUpdatePayload, ZCExpUpdatePayload,
+  ZCMapLoadPayload, ZCMapChangePayload, ZCHpSpUpdatePayload, ZCExpUpdatePayload,
   ZCLevelUpPayload, ZCInventoryUpdatePayload, ZCSkillCastPayload, ZCChatMessagePayload,
 } from "@epic-earth/shared";
+import { worldRuntime } from "../world/WorldLoader";
+import LoginScreen from "./auth/LoginScreen";
+import CharacterSelectScreen from "./auth/CharacterSelectScreen";
+import EnteringScreen from "./auth/EnteringScreen";
+import ReconnectingScreen from "./auth/ReconnectingScreen";
 
-type AuthPhase = "login" | "characters" | "entering" | "ingame";
+type AuthPhase = "login" | "characters" | "entering" | "ingame" | "reconnecting";
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:3001";
-
-const JOB_NAMES: Record<string, string> = {
-  novice: "Novice",
-};
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [phase, setPhase] = useState<AuthPhase>("login");
@@ -30,11 +31,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [charError, setCharError] = useState<string | null>(null);
   const [newCharName, setNewCharName] = useState("");
   const newCharJob = "novice";
+  const lastCharacterId = React.useRef<string | null>(null);
 
   const handleEntitySpawn = useCallback((entity: EntitySnapshot) => {
     const store = useGameStore.getState();
     if (entity.type === "player" && entity.id !== store.playerEntityId) {
       store.spawnNpc(entity.id, entity.name, entity.spriteSheetId, entity.position.x, entity.position.y);
+    } else if (entity.type === "monster") {
+      store.spawnMonsterFromSnapshot(entity);
     }
   }, []);
 
@@ -53,8 +57,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     if (!entity || !entity.components.position) return;
     entity.components.position.targetX = x;
     entity.components.position.targetY = y;
-    entity.components.position.x = x;
-    entity.components.position.y = y;
+    if (entity.components.position.path) {
+      entity.components.position.path = [];
+    }
+    if (entity.components.render) {
+      entity.components.render.currentAnimation = "walk";
+    }
   }, []);
 
   const onLogin = useCallback(async () => {
@@ -70,7 +78,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     const ws = new WebSocketChannel(WS_URL, {
       onAuthOk: (_accountId, chars) => {
         setCharacters(chars);
-        setPhase("characters");
+        if (lastCharacterId.current) {
+          channel?.selectCharacter(lastCharacterId.current);
+          setPhase("entering");
+        } else {
+          setPhase("characters");
+        }
       },
       onAuthError: (err) => {
         setAuthError(err);
@@ -89,9 +102,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       onEntitySpawn: handleEntitySpawn,
       onEntityDespawn: handleEntityDespawn,
       onEntityMove: handleEntityMove,
-      onEntityAttack: (_attackerId, _targetId) => {
-        // future: trigger attack animation
-      },
+      onEntityAttack: () => {},
       onEntityDamage: (payload: ZCEntityDamagePayload) => {
         const ecs = useGameStore.getState().ecsWorld;
         const target = ecs.getEntity(payload.targetId);
@@ -101,9 +112,17 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       },
       onEntityDeath: (payload: ZCEntityDeathPayload) => {
         const store = useGameStore.getState();
-        store.ecsWorld.removeEntity(payload.entityId);
-        store.entityManager.despawn(payload.entityId);
-        store.addLog(`Entity ${payload.entityId} has been defeated.`, "battle");
+        if (payload.entityId === store.playerEntityId) {
+          const player = store.ecsWorld.getEntity(payload.entityId);
+          if (player?.components.stats) {
+            player.components.stats.currentHp = 0;
+          }
+          store.addLog("You have been defeated!", "battle");
+        } else {
+          store.ecsWorld.removeEntity(payload.entityId);
+          store.entityManager.despawn(payload.entityId);
+          store.addLog(`Entity ${payload.entityId} has been defeated.`, "battle");
+        }
       },
       onEntityUpdate: (payload: ZCEntityUpdatePayload) => {
         const ecs = useGameStore.getState().ecsWorld;
@@ -118,8 +137,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           ent.components.stats.currentHp = Math.round((payload.hpPercent / 100) * ent.components.stats.maxHp);
         }
       },
-      onMapLoad: (_payload: ZCMapLoadPayload) => {
-        // future: load map from server data
+      onMapLoad: () => {},
+      onMapChange: (payload) => {
+        const store = useGameStore.getState();
+        worldRuntime.loadMap(payload.mapId, store, payload.position.x, payload.position.y);
       },
       onHpSpUpdate: (payload: ZCHpSpUpdatePayload) => {
         const ecs = useGameStore.getState().ecsWorld;
@@ -131,27 +152,43 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           player.components.stats.maxSp = payload.maxSp;
         }
       },
-      onExpUpdate: (_payload: ZCExpUpdatePayload) => {
-        // future: update XP bars
+      onExpUpdate: (payload: ZCExpUpdatePayload) => {
+        const store = useGameStore.getState();
+        const player = store.ecsWorld.getEntity(store.playerEntityId);
+        if (!player?.components.stats || !player.components.job) return;
+        const stats = player.components.stats as any;
+        stats.baseXp = payload.baseXp;
+        stats.jobXp = payload.jobXp;
+        stats.xpNeededBase = payload.xpNeededBase;
+        stats.xpNeededJob = payload.xpNeededJob;
+        store.addLog(`EXP: ${payload.baseXp}/${payload.xpNeededBase}`, "system");
       },
-      onLevelUp: (_payload: ZCLevelUpPayload) => {
-        useGameStore.getState().addLog("You leveled up!", "system");
+      onLevelUp: (payload: ZCLevelUpPayload) => {
+        const store = useGameStore.getState();
+        const player = store.ecsWorld.getEntity(store.playerEntityId);
+        if (!player?.components.job || !player.components.stats) return;
+        player.components.job.baseLevel = payload.baseLevel;
+        player.components.job.jobLevel = payload.jobLevel;
+        player.components.job.skillPoints = (player.components.job.skillPoints ?? 0) + payload.skillPoints;
+        const stats = player.components.stats as any;
+        stats.statPoints = (stats.statPoints ?? 0) + payload.statPoints;
+        store.addLog(`Level up! You are now base level ${payload.baseLevel}.`, "system");
+        store.addNotification({
+          type: "levelup",
+          title: "Level Up!",
+          message: `You reached base level ${payload.baseLevel}!`,
+          durationMs: 5000,
+        });
       },
-      onInventoryUpdate: (_payload: ZCInventoryUpdatePayload) => {
-        // future: sync inventory from server
-      },
-      onSkillCast: (_payload: ZCSkillCastPayload) => {
-        // future: trigger skill cast vfx
-      },
+      onInventoryUpdate: () => {},
+      onSkillCast: () => {},
       onChatMessage: (payload: ZCChatMessagePayload) => {
         useGameStore.getState().addLog(
           `[${payload.type}] ${payload.senderName || payload.senderId}: ${payload.message}`,
           "chat",
         );
       },
-      onPong: () => {
-        // future: track latency
-      },
+      onPong: () => {},
       onReconnecting: (attempt) => {
         console.log(`[WS] reconnecting attempt ${attempt}...`);
       },
@@ -159,7 +196,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         setCharError(`${code}: ${message}`);
       },
       onDisconnect: () => {
-        setPhase("login");
+        setPhase((prev) => prev === "ingame" ? "reconnecting" : "login");
       },
     });
 
@@ -167,7 +204,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     ws.auth(token);
     setChannel(ws);
     setLocalChannel(ws);
-  }, [email, password, handleEntitySpawn, handleEntityDespawn, handleEntityMove]);
+  }, [email, password, handleEntitySpawn, handleEntityDespawn, handleEntityMove, channel]);
 
   const onSignUp = useCallback(async () => {
     setAuthError(null);
@@ -188,6 +225,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const onSelectCharacter = useCallback(
     (characterId: string) => {
       if (!channel) return;
+      lastCharacterId.current = characterId;
       setPhase("entering");
       channel.selectCharacter(characterId);
     },
@@ -205,102 +243,35 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
+  if (phase === "reconnecting") {
+    return <ReconnectingScreen />;
+  }
+
   return (
     <div className="w-full min-h-screen bg-slate-950 flex items-center justify-center text-white">
       <div className="bg-slate-900 rounded-xl p-8 w-full max-w-md border border-slate-700">
-
         {phase === "login" && (
-          <div className="space-y-4">
-            <h1 className="text-2xl font-bold text-center mb-6">Epic Earth</h1>
-            {authError && (
-              <div className="bg-red-900/50 border border-red-700 rounded px-3 py-2 text-sm">
-                {authError}
-              </div>
-            )}
-            <input
-              className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600 focus:outline-none focus:border-blue-500"
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <input
-              className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600 focus:outline-none focus:border-blue-500"
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button
-              className="w-full py-2 rounded bg-blue-600 hover:bg-blue-700 font-semibold"
-              onClick={onLogin}
-            >
-              Login
-            </button>
-            <button
-              className="w-full py-2 rounded bg-slate-700 hover:bg-slate-600 font-semibold text-sm"
-              onClick={onSignUp}
-            >
-              Sign Up
-            </button>
-          </div>
+          <LoginScreen
+            email={email}
+            password={password}
+            authError={authError}
+            onEmailChange={setEmail}
+            onPasswordChange={setPassword}
+            onLogin={onLogin}
+            onSignUp={onSignUp}
+          />
         )}
-
         {phase === "characters" && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-bold text-center">Select Character</h2>
-
-            {charError && (
-              <div className="bg-red-900/50 border border-red-700 rounded px-3 py-2 text-sm">
-                {charError}
-              </div>
-            )}
-
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {characters.length === 0 && (
-                <p className="text-slate-400 text-sm text-center">No characters yet</p>
-              )}
-              {characters.map((c) => (
-                <button
-                  key={c.id}
-                  className="w-full text-left px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600"
-                  onClick={() => onSelectCharacter(c.id)}
-                >
-                  <span className="font-medium">{c.name}</span>
-                  <span className="text-slate-400 text-sm ml-2">
-                    {JOB_NAMES[c.jobId] || c.jobId} Lv.{c.baseLevel}/{c.jobLevel}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            <hr className="border-slate-700" />
-            <h3 className="font-semibold text-sm">Create New Character</h3>
-
-            <input
-              className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600 focus:outline-none focus:border-blue-500"
-              placeholder="Character name"
-              maxLength={16}
-              value={newCharName}
-              onChange={(e) => setNewCharName(e.target.value)}
-            />
-            <div className="text-sm text-slate-400">Class: Novice (change jobs in-game)</div>
-            <button
-              className="w-full py-2 rounded bg-emerald-600 hover:bg-emerald-700 font-semibold"
-              onClick={onCreateCharacter}
-            >
-              Create
-            </button>
-          </div>
+          <CharacterSelectScreen
+            characters={characters}
+            charError={charError}
+            newCharName={newCharName}
+            onSelectCharacter={onSelectCharacter}
+            onCreateCharacter={onCreateCharacter}
+            onNewCharNameChange={setNewCharName}
+          />
         )}
-
-        {phase === "entering" && (
-          <div className="text-center space-y-4">
-            <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto" />
-            <p className="text-slate-400">Entering world...</p>
-          </div>
-        )}
-
+        {phase === "entering" && <EnteringScreen />}
       </div>
     </div>
   );

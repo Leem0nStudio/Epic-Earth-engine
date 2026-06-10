@@ -81,3 +81,123 @@ export function getXpRequired(level: number, type: "base" | "job"): number {
   }
   return Math.floor(50 * Math.pow(level, 1.6)) + (level * 10);
 }
+
+// ─── Skill Helpers ───────────────────────────────────────────────
+
+export interface SkillLevelData {
+  level: number;
+  spCost: number;
+  range: number;
+  castTime: number;
+  cooldown: number;
+  multiplier: number;
+}
+
+export function getSkillLevelData(skill: { levels: SkillLevelData[] }, level: number): SkillLevelData | null {
+  if (!skill.levels || skill.levels.length === 0) return null;
+  // Find exact level or nearest lower
+  let best = skill.levels[0];
+  for (const l of skill.levels) {
+    if (l.level === level) return l;
+    if (l.level < level && l.level > best.level) best = l;
+  }
+  return best;
+}
+
+export function calculateSkillDamage(
+  baseAtk: number,
+  multiplier: number,
+  extraAtk: number = 0,
+): number {
+  return Math.floor((baseAtk + extraAtk) * multiplier);
+}
+
+export function calculateHealAmount(baseHeal: number, multiplier: number, intStat: number): number {
+  return Math.floor((baseHeal + intStat * 2) * multiplier);
+}
+
+export interface SkillCatalogEntry {
+  id: string;
+  name: string;
+  maxLevel: number;
+  type: string;
+  levels: SkillLevelData[];
+}
+
+export function findPathOnGrid(
+  grid: number[][],
+  width: number,
+  height: number,
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  occupied?: Set<number>
+): [number, number][] | null {
+  if (startX < 0 || startX >= width || startY < 0 || startY >= height) return null;
+  if (endX < 0 || endX >= width || endY < 0 || endY >= height) return null;
+  if (grid[startY][startX] === 0) return null;
+  if (grid[endY][endX] === 0) return null;
+
+  if (startX === endX && startY === endY) return [[startX, startY]];
+
+  interface Node {
+    x: number; y: number;
+    g: number; h: number; f: number;
+    parent: Node | null;
+  }
+
+  const open: Node[] = [];
+  const closed = new Set<number>();
+  const hash = (x: number, y: number) => y * width + x;
+  const dirs: [number, number][] = [
+    [0, -1], [1, -1], [1, 0], [1, 1],
+    [0, 1], [-1, 1], [-1, 0], [-1, -1]
+  ];
+
+  const start: Node = { x: startX, y: startY, g: 0, h: 0, f: 0, parent: null };
+  start.h = Math.max(Math.abs(endX - startX), Math.abs(endY - startY));
+  start.f = start.h;
+  open.push(start);
+
+  while (open.length > 0) {
+    let best = 0;
+    for (let i = 1; i < open.length; i++) {
+      if (open[i].f < open[best].f) best = i;
+    }
+    const cur = open.splice(best, 1)[0];
+
+    if (cur.x === endX && cur.y === endY) {
+      const path: [number, number][] = [];
+      let n: Node | null = cur;
+      while (n) { path.unshift([n.x, n.y]); n = n.parent; }
+      return path;
+    }
+
+    closed.add(hash(cur.x, cur.y));
+
+    for (const [dx, dy] of dirs) {
+      const nx = cur.x + dx;
+      const ny = cur.y + dy;
+      if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+      if (grid[ny][nx] === 0) continue;
+      if (closed.has(hash(nx, ny))) continue;
+      // Blocked by another entity? allow if target cell
+      if (occupied && occupied.has(hash(nx, ny)) && !(nx === endX && ny === endY)) continue;
+      if (dx !== 0 && dy !== 0 && grid[cur.y][nx] === 0 && grid[ny][cur.x] === 0) continue;
+
+      const g = cur.g + (dx !== 0 && dy !== 0 ? 1.414 : 1);
+      const h = Math.max(Math.abs(endX - nx), Math.abs(endY - ny));
+      const f = g + h;
+
+      const ex = open.find(n => n.x === nx && n.y === ny);
+      if (ex) {
+        if (g < ex.g) { ex.g = g; ex.f = f; ex.parent = cur; }
+      } else {
+        open.push({ x: nx, y: ny, g, h, f, parent: cur });
+      }
+    }
+  }
+
+  return null;
+}

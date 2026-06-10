@@ -11,6 +11,8 @@ export enum PacketType {
   CZ_CHARACTER_LIST = "CZ_CHARACTER_LIST",
   CZ_CHARACTER_CREATE = "CZ_CHARACTER_CREATE",
   CZ_CHARACTER_SELECT = "CZ_CHARACTER_SELECT",
+  CZ_REQUEST_REVIVE = "CZ_REQUEST_REVIVE",
+  CZ_REQUEST_WARP = "CZ_REQUEST_WARP",
 
   // Server → Client
   ZC_PONG = "ZC_PONG",
@@ -33,6 +35,7 @@ export enum PacketType {
   ZC_INVENTORY_UPDATE = "ZC_INVENTORY_UPDATE",
   ZC_SKILL_CAST = "ZC_SKILL_CAST",
   ZC_CHAT_MESSAGE = "ZC_CHAT_MESSAGE",
+  ZC_MAP_CHANGE = "ZC_MAP_CHANGE",
   ZC_ERROR = "ZC_ERROR",
 }
 
@@ -74,6 +77,17 @@ export interface CZRequestAttackPayload {
   targetEntityId: string;
 }
 
+export interface CZRequestRevivePayload {
+  characterId: string;
+}
+
+export interface CZRequestWarpPayload {
+  portalId: string;
+  targetMapId: string;
+  targetX: number;
+  targetY: number;
+}
+
 export interface CZRequestUseSkillPayload {
   skillId: string;
   level: number;
@@ -93,6 +107,14 @@ export interface CZCharacterCreatePayload {
 
 export interface CZCharacterSelectPayload {
   characterId: string;
+}
+
+export interface CZRequestPickupPayload {
+  groundItemId: string;
+}
+
+export interface CZRequestTalkNpcPayload {
+  npcId: string;
 }
 
 // ─── Server → Client payloads ──────────────────────────────────────────
@@ -146,8 +168,13 @@ export interface ZCEnterWorldPayload {
     int: number;
     dex: number;
     luk: number;
+    statPoints: number;
+    skillPoints: number;
   };
   entities: EntitySnapshot[];
+  inventory?: { slotId: number; itemId: string; quantity: number; isEquipped: boolean }[];
+  equipment?: Record<string, string | undefined>;
+  skills?: { skillId: string; level: number }[];
 }
 
 export interface ZCEntitySpawnPayload {
@@ -241,6 +268,11 @@ export interface ZCChatMessagePayload {
   type: "say" | "whisper" | "party" | "system";
 }
 
+export interface ZCMapChangePayload {
+  mapId: string;
+  position: Position;
+}
+
 export interface ZCErrorPayload {
   code: string;
   message: string;
@@ -254,7 +286,11 @@ export type ClientPacket =
   | Packet<CZRequestUseItemPayload> & { type: PacketType.CZ_REQUEST_USE_ITEM }
   | Packet<CZCharacterCreatePayload> & { type: PacketType.CZ_CHARACTER_CREATE }
   | Packet<CZCharacterSelectPayload> & { type: PacketType.CZ_CHARACTER_SELECT }
-  | Packet<never> & { type: PacketType.CZ_PING | PacketType.CZ_CHARACTER_LIST | PacketType.CZ_REQUEST_PICKUP | PacketType.CZ_REQUEST_TALK_NPC };
+  | Packet<CZRequestPickupPayload> & { type: PacketType.CZ_REQUEST_PICKUP }
+  | Packet<CZRequestTalkNpcPayload> & { type: PacketType.CZ_REQUEST_TALK_NPC }
+  | Packet<CZRequestRevivePayload> & { type: PacketType.CZ_REQUEST_REVIVE }
+  | Packet<CZRequestWarpPayload> & { type: PacketType.CZ_REQUEST_WARP }
+  | Packet<never> & { type: PacketType.CZ_PING | PacketType.CZ_CHARACTER_LIST };
 
 export type ServerPacket =
   | Packet<ZCAuthOkPayload> & { type: PacketType.ZC_AUTH_OK }
@@ -277,4 +313,5 @@ export type ServerPacket =
   | Packet<ZCSkillCastPayload> & { type: PacketType.ZC_SKILL_CAST }
   | Packet<ZCChatMessagePayload> & { type: PacketType.ZC_CHAT_MESSAGE }
   | Packet<ZCErrorPayload> & { type: PacketType.ZC_ERROR }
+  | Packet<ZCMapChangePayload> & { type: PacketType.ZC_MAP_CHANGE }
   | Packet<never> & { type: PacketType.ZC_PONG };

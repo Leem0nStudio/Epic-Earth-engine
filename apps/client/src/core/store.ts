@@ -52,6 +52,29 @@ export interface GameLog {
   message: string;
 }
 
+export interface UINotification {
+  id: string;
+  type: "info" | "success" | "warning" | "error" | "levelup" | "loot";
+  title: string;
+  message?: string;
+  icon?: string;
+  durationMs: number;
+  timestamp: number;
+}
+
+export interface ActivePanels {
+  inventory: boolean;
+  equipment: boolean;
+  skillTree: boolean;
+  stats: boolean;
+  chat: boolean;
+  npcDialog: boolean;
+}
+
+export type InputMode = "keyboard" | "touch" | "gamepad";
+export type PanelLayout = "mobile" | "tablet" | "desktop";
+export type ActiveInventoryTab = "inventory" | "storage" | "cart" | "ground";
+
 export interface GameState {
   // World entities and grid
   ecsWorld: ECSWorld;
@@ -92,8 +115,13 @@ export interface GameState {
   spawnNpc: (npcId: string, name: string, spriteSheetId: string, x: number, y: number, interactions?: NpcInteraction[]) => void;
   spawnPet: (name: string, petId: string, x: number, y: number) => void;
   spawnSummon: (name: string, summonId: string, x: number, y: number) => void;
+  spawnMonsterFromSnapshot: (snapshot: import("@epic-earth/shared").EntitySnapshot) => void;
   bulkSpawnStressTest: (count: number) => void;
   movePlayerTo: (tx: number, ty: number) => void;
+  attackEntity: (entityId: string) => void;
+  revivePlayer: () => void;
+  castSkill: (skillId: string, level: number, targetId?: string) => void;
+  learnSkill: (skillId: string) => void;
   
   // Map modification transitions
   setMap: (map: MapInstance) => void;
@@ -129,6 +157,21 @@ export interface GameState {
   
   // Game Engine update hook
   tick: (deltaTime: number) => void;
+
+  // ─── UI State ───────────────────────────────────────────────────────
+  inputMode: InputMode;
+  panelLayout: PanelLayout;
+  activePanels: ActivePanels;
+  activeInventoryTab: ActiveInventoryTab;
+  notifications: UINotification[];
+  reducedMotion: boolean;
+
+  togglePanel: (panel: keyof ActivePanels) => void;
+  setInputMode: (mode: InputMode) => void;
+  setPanelLayout: (layout: PanelLayout) => void;
+  setActiveInventoryTab: (tab: ActiveInventoryTab) => void;
+  addNotification: (n: Omit<UINotification, "id" | "timestamp">) => void;
+  dismissNotification: (id: string) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => {
@@ -177,6 +220,14 @@ export const useGameStore = create<GameState>((set, get) => {
     
     serverEnterWorld: null,
 
+    // ─── UI State defaults ───────────────────────────────────────────────
+    inputMode: "keyboard",
+    panelLayout: "desktop",
+    activePanels: { inventory: false, equipment: false, skillTree: false, stats: false, chat: true, npcDialog: false },
+    activeInventoryTab: "inventory",
+    notifications: [],
+    reducedMotion: false,
+
     setServerEnterWorld: (payload: ZCEnterWorldPayload) => {
       set({ serverEnterWorld: payload });
     },
@@ -188,7 +239,7 @@ export const useGameStore = create<GameState>((set, get) => {
     itemsCatalog: itemsData.items as unknown as ItemDefinition[],
 
     initializeGame: () => {
-      const { addLog, serverEnterWorld } = get();
+      const { addLog, serverEnterWorld, ecsWorld } = get();
 
       addLog("System: Initializing world...", "system");
 
@@ -197,6 +248,23 @@ export const useGameStore = create<GameState>((set, get) => {
         const sx = Math.round(serverEnterWorld.position.x);
         const sy = Math.round(serverEnterWorld.position.y);
         worldRuntime.loadMap(mapId, get(), sx, sy);
+
+        // Remove locally-spawned monsters; server is authoritative
+        const allEntities = ecsWorld.getAllEntities();
+        for (const ent of allEntities) {
+          if (ent.id !== get().playerEntityId && ent.components.identity?.type === "monster") {
+            ecsWorld.removeEntity(ent.id);
+            get().entityManager.despawn(ent.id);
+          }
+        }
+
+        // Spawn server-authoritative monsters
+        for (const entity of serverEnterWorld.entities) {
+          if (entity.type === "monster") {
+            get().spawnMonsterFromSnapshot(entity);
+          }
+        }
+
         set({ isInitializing: false });
         addLog(`System: Entering world on map ${mapId}.`, "system");
       } else {
@@ -222,6 +290,42 @@ export const useGameStore = create<GameState>((set, get) => {
 
     selectEntity: (id) => {
       set({ selectedEntityId: id });
+    },
+
+    // ─── UI Actions ──────────────────────────────────────────────────────
+    togglePanel: (panel) => {
+      set((state) => ({
+        activePanels: { ...state.activePanels, [panel]: !state.activePanels[panel] },
+      }));
+    },
+
+    setInputMode: (mode) => {
+      set({ inputMode: mode });
+    },
+
+    setPanelLayout: (layout) => {
+      set({ panelLayout: layout });
+    },
+
+    setActiveInventoryTab: (tab) => {
+      set({ activeInventoryTab: tab });
+    },
+
+    addNotification: (n) => {
+      const notification: UINotification = {
+        ...n,
+        id: Math.random().toString(36).substring(7),
+        timestamp: Date.now(),
+      };
+      set((state) => ({
+        notifications: [...state.notifications, notification].slice(-5),
+      }));
+    },
+
+    dismissNotification: (id) => {
+      set((state) => ({
+        notifications: state.notifications.filter((n) => n.id !== id),
+      }));
     },
 
     recalculatePlayerStats: () => {
@@ -374,6 +478,9 @@ export const useGameStore = create<GameState>((set, get) => {
           baseHp: s.maxHp, baseSp: s.maxSp,
           baseLevel: s.baseLevel, jobLevel: s.jobLevel,
           baseXp: s.baseXp, jobXp: s.jobXp,
+          xpNeededBase: s.xpNeededBase, xpNeededJob: s.xpNeededJob,
+          statPoints: s.statPoints,
+          skillPoints: s.skillPoints,
         };
         // Clear so subsequent map loads don't re-use it
         set({ serverEnterWorld: null });
@@ -386,22 +493,37 @@ export const useGameStore = create<GameState>((set, get) => {
       }
 
       const player = new PlayerEntity("player_hero", finalName, finalJobId, playerPos, playerStats, "idle");
-      player.components.inventory = {
-        slots: sw ? [] : [
-          { slotId: 0, itemId: "red_potion", quantity: 15 },
-          { slotId: 1, itemId: "blue_potion", quantity: 10 },
-          { slotId: 2, itemId: "blessing_scroll", quantity: 5 },
-          { slotId: 3, itemId: "increase_agi_scroll", quantity: 5 },
-          { slotId: 4, itemId: "berserk_potion", quantity: 5 },
-          { slotId: 5, itemId: "grilled_griffin_food", quantity: 3 },
-          { slotId: 6, itemId: "honey_herbal_tea", quantity: 3 },
-          { slotId: 7, itemId: "knife", quantity: 1 },
-          { slotId: 8, itemId: "composite_bow", quantity: 1 },
-          { slotId: 9, itemId: "apple_o_archer", quantity: 1 },
-          { slotId: 10, itemId: "iron_shield", quantity: 1 },
-        ],
-        maxSlots: 100,
-      };
+      if (sw && sw.inventory) {
+        player.components.inventory = {
+          slots: sw.inventory.map((s) => ({
+            slotId: s.slotId,
+            itemId: s.itemId,
+            quantity: s.quantity,
+            isEquipped: s.isEquipped,
+          })),
+          maxSlots: 100,
+        };
+        if (sw.equipment) {
+          player.components.equipment = { ...player.components.equipment, ...sw.equipment };
+        }
+      } else {
+        player.components.inventory = {
+          slots: [
+            { slotId: 0, itemId: "red_potion", quantity: 15 },
+            { slotId: 1, itemId: "blue_potion", quantity: 10 },
+            { slotId: 2, itemId: "blessing_scroll", quantity: 5 },
+            { slotId: 3, itemId: "increase_agi_scroll", quantity: 5 },
+            { slotId: 4, itemId: "berserk_potion", quantity: 5 },
+            { slotId: 5, itemId: "grilled_griffin_food", quantity: 3 },
+            { slotId: 6, itemId: "honey_herbal_tea", quantity: 3 },
+            { slotId: 7, itemId: "knife", quantity: 1 },
+            { slotId: 8, itemId: "composite_bow", quantity: 1 },
+            { slotId: 9, itemId: "apple_o_archer", quantity: 1 },
+            { slotId: 10, itemId: "iron_shield", quantity: 1 },
+          ],
+          maxSlots: 100,
+        };
+      }
       player.components.combat = {
         isCasting: false, castProgress: 0, totalCastTime: 0,
         lastAttackTime: 0, attackCooldown: 1000,
@@ -506,6 +628,43 @@ export const useGameStore = create<GameState>((set, get) => {
       set({ gameTickCount: get().gameTickCount + 1 });
     },
 
+    spawnMonsterFromSnapshot: (snapshot) => {
+      const ecs = get().ecsWorld;
+      const em = get().entityManager;
+      const monDesc = get().monstersCatalog.find((m: any) => `monster_${m.id}` === snapshot.spriteSheetId);
+      const hp = monDesc ? monDesc.hp : 100;
+      const stats = {
+        currentHp: Math.round(hp * (snapshot.hpPercent / 100)),
+        maxHp: hp,
+        currentSp: 10,
+        maxSp: 10,
+        str: monDesc?.stats?.str ?? 5,
+        agi: monDesc?.stats?.agi ?? 5,
+        vit: monDesc?.stats?.vit ?? 5,
+        int: monDesc?.stats?.int ?? 5,
+        dex: monDesc?.stats?.dex ?? 5,
+        luk: monDesc?.stats?.luk ?? 5,
+      };
+      const pos = { x: snapshot.position.x, y: snapshot.position.y, z: snapshot.position.z, speed: monDesc?.moveSpeed ?? 1.2, direction: 4 };
+      const monster = new MonsterEntity(
+        snapshot.id,
+        snapshot.name,
+        snapshot.spriteSheetId.replace("monster_", ""),
+        monDesc?.level ?? 1,
+        monDesc?.drops ?? [],
+        monDesc?.aiType ?? "passive",
+        pos,
+        stats,
+        snapshot.state as any
+      );
+      monster.components.render!.spriteSheetId = snapshot.spriteSheetId;
+      monster.components.render!.scale = snapshot.scale;
+      monster.components.render!.currentAnimation = "idle";
+      ecs.registerExistingEntity(monster);
+      em.spawn(monster);
+      set({ gameTickCount: get().gameTickCount + 1 });
+    },
+
     setMap: (map) => {
       set({ currentMap: map });
     },
@@ -598,7 +757,21 @@ export const useGameStore = create<GameState>((set, get) => {
 
       const sx = Math.round(player.components.position.x);
       const sy = Math.round(player.components.position.y);
-      const path = findPath(get().currentMap, sx, sy, tx, ty);
+
+      // Build set of cells occupied by other entities (exclude player)
+      const blockedCells = new Set<string>();
+      const allEntities = ecs.getAllEntities();
+      const playerId = get().playerEntityId;
+      for (const ent of allEntities) {
+        if (ent.id === playerId) continue;
+        if (ent.components.position) {
+          const ex = Math.round(ent.components.position.x);
+          const ey = Math.round(ent.components.position.y);
+          blockedCells.add(`${ex},${ey}`);
+        }
+      }
+
+      const path = findPath(get().currentMap, sx, sy, tx, ty, blockedCells);
       
       if (!path || path.length < 2) return;
 
@@ -618,6 +791,97 @@ export const useGameStore = create<GameState>((set, get) => {
       }
 
       get().addLog(`System: Navigating hero to coordinate (${tx}, ${ty}).`, "info");
+    },
+
+    castSkill: (skillId, level, targetId) => {
+      const ecs = get().ecsWorld;
+      const player = ecs.getEntity(get().playerEntityId);
+      if (!player || !player.components.combat) return;
+
+      const skill = get().skillsCatalog.find((s: any) => s.id === skillId);
+      if (!skill) return;
+
+      const ch = getChannel();
+      if (ch) {
+        ch.requestUseSkill(skillId, level, targetId);
+        get().addLog(`System: Casting ${skill.name} Lv.${level}...`, "system");
+      } else {
+        // Offline mode — trigger local cast
+        const combat = player.components.combat;
+        const levelData = skill.levels?.find((l: any) => l.level === level) || skill.levels?.[0];
+        if (levelData && levelData.castTime > 0) {
+          combat.isCasting = true;
+          combat.activeSkill = { id: skillId, level, targetId: targetId || "" };
+          combat.totalCastTime = levelData.castTime * 1000;
+          combat.castProgress = 0;
+          get().addLog(`System: Casting ${skill.name}...`, "system");
+        } else {
+          const dmg = levelData ? Math.floor((player.components.stats as any)?.str * (levelData.multiplier || 1)) : 10;
+          get().addLog(`System: Used ${skill.name} (${dmg} dmg).`, "battle");
+        }
+      }
+    },
+
+    learnSkill: (skillId) => {
+      const ecs = get().ecsWorld;
+      const player = ecs.getEntity(get().playerEntityId);
+      if (!player || !player.components.job || !player.components.combat) return;
+
+      const skill = get().skillsCatalog.find((s: any) => s.id === skillId);
+      if (!skill) return;
+
+      const job = player.components.job;
+      if ((job.skillPoints ?? 0) <= 0) {
+        get().addLog("System: Not enough skill points.", "system");
+        return;
+      }
+
+      const combat = player.components.combat;
+      const existing = combat.skills.find((s) => s.id === skillId);
+      const currentLevel = existing?.level || 0;
+      if (currentLevel >= skill.maxLevel) {
+        get().addLog(`System: ${skill.name} is already max level.`, "system");
+        return;
+      }
+
+      const newLevel = currentLevel + 1;
+      if (existing) {
+        existing.level = newLevel;
+      } else {
+        combat.skills.push({ id: skillId, level: newLevel });
+      }
+      job.skillPoints = (job.skillPoints ?? 1) - 1;
+      get().addLog(`System: Learned ${skill.name} Lv.${newLevel}!`, "system");
+      set({ gameTickCount: get().gameTickCount + 1 });
+    },
+
+    attackEntity: (entityId) => {
+      const ch = getChannel();
+      if (ch) {
+        ch.requestAttack(entityId);
+        get().addLog(`System: Attacking entity ${entityId}.`, "battle");
+      }
+    },
+
+    revivePlayer: () => {
+      const ch = getChannel();
+      if (ch) {
+        ch.requestRevive("player_hero");
+        get().addLog("System: Requesting revival...", "system");
+      } else {
+        // Offline: revive locally
+        const ecs = get().ecsWorld;
+        const player = ecs.getEntity(get().playerEntityId);
+        if (player?.components.stats) {
+          const s = player.components.stats;
+          s.currentHp = Math.floor(s.maxHp * 0.5);
+          s.currentSp = Math.floor(s.maxSp * 0.3);
+        }
+        if (player?.components.render) {
+          player.components.render.currentAnimation = "idle";
+        }
+        get().addLog("System: You have been revived.", "system");
+      }
     },
 
     allocateStatPoint: (stat) => {
@@ -1279,7 +1543,12 @@ export const useGameStore = create<GameState>((set, get) => {
       const { ecsWorld, entityManager, gameTickCount } = get();
 
       // System 0: Decoupled World Runtime tick (handles revival delays and portal overlays checking)
-      worldRuntime.tick(deltaTime * 1000, get());
+      const ch = getChannel();
+      worldRuntime.tick(deltaTime * 1000, get(), ch ? {
+        requestWarp: (portalId, targetMapId, targetX, targetY) => {
+          ch.requestWarp(portalId, targetMapId, targetX, targetY);
+        },
+      } : undefined);
 
       // System 1: Movement System & Coordinate updates
       const movingEntities = ecsWorld.queryEntities(["position"]);
