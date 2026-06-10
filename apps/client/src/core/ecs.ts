@@ -99,6 +99,8 @@ export interface Entity {
 export class ECSWorld {
   private entities: Map<EntityId, Entity> = new Map();
   private systems: ECSSystem[] = [];
+  private entityVersion = 0;
+  private queryCache = new Map<string, { version: number; result: Entity[] }>();
 
   public createEntity(id: EntityId, initialComponents: Partial<ComponentMap> = {}): Entity {
     const entity: Entity = {
@@ -114,11 +116,15 @@ export class ECSWorld {
       };
     }
     this.entities.set(id, entity);
+    this.entityVersion++;
+    this.queryCache.clear();
     return entity;
   }
 
   public registerExistingEntity(entity: Entity): void {
     this.entities.set(entity.id, entity);
+    this.entityVersion++;
+    this.queryCache.clear();
   }
 
   public getEntity(id: EntityId): Entity | undefined {
@@ -126,7 +132,12 @@ export class ECSWorld {
   }
 
   public removeEntity(id: EntityId): boolean {
-    return this.entities.delete(id);
+    const result = this.entities.delete(id);
+    if (result) {
+      this.entityVersion++;
+      this.queryCache.clear();
+    }
+    return result;
   }
 
   public getAllEntities(): Entity[] {
@@ -137,6 +148,8 @@ export class ECSWorld {
     const entity = this.entities.get(id);
     if (entity) {
       entity.components[name] = component;
+      this.entityVersion++;
+      this.queryCache.clear();
     }
   }
 
@@ -144,13 +157,26 @@ export class ECSWorld {
     const entity = this.entities.get(id);
     if (entity) {
       delete entity.components[name];
+      this.entityVersion++;
+      this.queryCache.clear();
     }
   }
 
+  private queryCacheKey(components: ComponentName[]): string {
+    return components.slice().sort().join(",");
+  }
+
   public queryEntities<K extends ComponentName>(requiredComponents: K[]): Entity[] {
-    return this.getAllEntities().filter((entity) =>
+    const key = this.queryCacheKey(requiredComponents);
+    const cached = this.queryCache.get(key);
+    if (cached && cached.version === this.entityVersion) {
+      return cached.result;
+    }
+    const result = this.getAllEntities().filter((entity) =>
       requiredComponents.every((name) => entity.components[name] !== undefined)
     );
+    this.queryCache.set(key, { version: this.entityVersion, result });
+    return result;
   }
 
   public addSystem(system: ECSSystem): void {
