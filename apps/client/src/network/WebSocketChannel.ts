@@ -4,7 +4,8 @@ import type {
   ZCEntityDamagePayload, ZCEntityDeathPayload, ZCEntityUpdatePayload,
   ZCMapLoadPayload, ZCHpSpUpdatePayload, ZCExpUpdatePayload,
   ZCLevelUpPayload, ZCInventoryUpdatePayload, ZCSkillCastPayload, ZCChatMessagePayload,
-  ZCMapChangePayload,
+  ZCMapChangePayload, ZCGroundItemSpawnPayload, ZCGroundItemDespawnPayload,
+  ZCStatUpdatePayload,
 } from "@epic-earth/shared";
 
 export interface WebSocketCallbacks {
@@ -22,6 +23,9 @@ export interface WebSocketCallbacks {
   onEntityUpdate: (payload: ZCEntityUpdatePayload) => void;
   onMapLoad: (payload: ZCMapLoadPayload) => void;
   onMapChange: (payload: ZCMapChangePayload) => void;
+  onGroundItemSpawn: (payload: ZCGroundItemSpawnPayload) => void;
+  onGroundItemDespawn: (payload: ZCGroundItemDespawnPayload) => void;
+  onStatUpdate: (payload: ZCStatUpdatePayload) => void;
   onHpSpUpdate: (payload: ZCHpSpUpdatePayload) => void;
   onExpUpdate: (payload: ZCExpUpdatePayload) => void;
   onLevelUp: (payload: ZCLevelUpPayload) => void;
@@ -179,6 +183,14 @@ export class WebSocketChannel {
     this.send(PacketType.CZ_REQUEST_WARP, { portalId, targetMapId, targetX, targetY });
   }
 
+  requestPickup(groundItemId: string): void {
+    this.send(PacketType.CZ_REQUEST_PICKUP, { groundItemId });
+  }
+
+  requestStatUp(stat: "str" | "agi" | "vit" | "int" | "dex" | "luk"): void {
+    this.send(PacketType.CZ_REQUEST_STAT_UP, { stat });
+  }
+
   disconnect(): void {
     this.intentionalClose = true;
     this.shouldReconnect = false;
@@ -289,6 +301,18 @@ export class WebSocketChannel {
       }
       case PacketType.ZC_MAP_CHANGE: {
         this.callbacks.onMapChange(packet.payload as ZCMapChangePayload);
+        break;
+      }
+      case PacketType.ZC_GROUND_ITEM_SPAWN: {
+        this.callbacks.onGroundItemSpawn(packet.payload as ZCGroundItemSpawnPayload);
+        break;
+      }
+      case PacketType.ZC_GROUND_ITEM_DESPAWN: {
+        this.callbacks.onGroundItemDespawn(packet.payload as ZCGroundItemDespawnPayload);
+        break;
+      }
+      case PacketType.ZC_STAT_UPDATE: {
+        this.callbacks.onStatUpdate(packet.payload as ZCStatUpdatePayload);
         break;
       }
       case PacketType.ZC_ERROR: {

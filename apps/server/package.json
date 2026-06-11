@@ -11,8 +11,11 @@
   },
   "dependencies": {
     "@epic-earth/shared": "workspace:*",
+    "@hello-terrain/three": "^0.0.0-alpha.10",
     "@supabase/supabase-js": "^2.49.0",
     "dotenv": "^17.4.2",
+    "simplex-noise": "^4.0.0",
+    "three": "^0.182.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

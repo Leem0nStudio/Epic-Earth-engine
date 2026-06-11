@@ -1,8 +1,48 @@
 import { PlayerSession } from "../session/PlayerSession";
 import { PacketType, type EntitySnapshot, type ServerPacket } from "@epic-earth/shared";
+import { getMap } from "../data/maps";
+import type { MapInfo } from "@epic-earth/shared";
 
 export class WorldRoom {
   private static maps = new Map<string, Set<PlayerSession>>();
+
+  /**
+   * Sends ZC_MAP_LOAD to a session with the map's navigation data.
+   * For procedural maps, sends seed/tileSize instead of the full grid.
+   */
+  static sendInitMap(session: PlayerSession, mapInfo?: { seed: number; width: number; height: number; tileSize: number }): void {
+    const mapId = session.mapId;
+    if (!mapId) return;
+
+    const mapData = getMap(mapId);
+    if (!mapData) {
+      console.warn(`[WorldRoom] sendInitMap: no map data for "${mapId}"`);
+      return;
+    }
+
+    if (mapInfo) {
+      // Procedural map — send seed so client generates terrain
+      session.send(PacketType.ZC_MAP_LOAD, {
+        mapId,
+        width: mapInfo.width,
+        height: mapInfo.height,
+        grid: mapData.grid, // still send navigation grid for walkability
+        entities: [],
+        seed: mapInfo.seed,
+        tileSize: mapInfo.tileSize,
+      });
+    } else {
+      // Static map from JSON — send the full grid
+      session.send(PacketType.ZC_MAP_LOAD, {
+        mapId,
+        width: mapData.width,
+        height: mapData.height,
+        grid: mapData.grid,
+        elevation: mapData.elevation,
+        entities: [],
+      });
+    }
+  }
 
   static join(session: PlayerSession): EntitySnapshot[] {
     const mapId = session.mapId;

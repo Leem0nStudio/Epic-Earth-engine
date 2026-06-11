@@ -24,6 +24,9 @@ export type {
   MapDefinition,
   MapExportJSON,
 } from "./contracts";
+export type { MapInfo, Portal } from "./types/map";
+export { getHeightAt, buildWalkableMatrix, walkableMatrixToGrid } from "./map/MapGenerator";
+export type { ProceduralMapConfig } from "./map/MapGenerator";
 
 export { PacketType } from "./network";
 export type {
@@ -42,6 +45,16 @@ export type {
   CZRequestUseItemPayload,
   CZCharacterCreatePayload,
   CZCharacterSelectPayload,
+  CZRequestPickupPayload,
+  CZRequestTalkNpcPayload,
+  CZRequestStatUpPayload,
+  CZRequestBuyPayload,
+  CZRequestSellPayload,
+  CZNpcSelectPayload,
+  ZCStatUpdatePayload,
+  ZCNpcDialogPayload,
+  ZCNpcShopPayload,
+  ZCZenyUpdatePayload,
   ZCAuthOkPayload,
   ZCAuthErrorPayload,
   ZCCharacterListPayload,
@@ -62,5 +75,7 @@ export type {
   ZCSkillCastPayload,
   ZCChatMessagePayload,
   ZCMapChangePayload,
+  ZCGroundItemSpawnPayload,
+  ZCGroundItemDespawnPayload,
   ZCErrorPayload,
 } from "./network";

@@ -176,6 +176,7 @@ export class MapLoader {
       width,
       height,
       cells,
+      elevation: elevation && elevation.length > 0 ? elevation : undefined,
       portals,
       npcs,
       monstersSpawnList,

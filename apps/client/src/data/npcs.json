@@ -21,6 +21,50 @@
           "data": { "mapId": "geffen", "x": 100, "y": 100 }
         }
       ]
+    },
+    {
+      "id": "prontera_tool_dealer",
+      "name": "Tool Dealer",
+      "spriteSheetId": "npc_shop",
+      "interactions": [
+        {
+          "type": "shop",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "prontera_weapon_smith",
+      "name": "Weapon Smith",
+      "spriteSheetId": "npc_shop",
+      "interactions": [
+        {
+          "type": "shop",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "prontera_armor_dealer",
+      "name": "Armor Dealer",
+      "spriteSheetId": "npc_shop",
+      "interactions": [
+        {
+          "type": "shop",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "prontera_food_vendor",
+      "name": "Food Vendor",
+      "spriteSheetId": "npc_shop",
+      "interactions": [
+        {
+          "type": "shop",
+          "data": {}
+        }
+      ]
     }
   ]
 }

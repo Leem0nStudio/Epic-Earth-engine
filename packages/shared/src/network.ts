@@ -13,6 +13,10 @@ export enum PacketType {
   CZ_CHARACTER_SELECT = "CZ_CHARACTER_SELECT",
   CZ_REQUEST_REVIVE = "CZ_REQUEST_REVIVE",
   CZ_REQUEST_WARP = "CZ_REQUEST_WARP",
+  CZ_REQUEST_STAT_UP = "CZ_REQUEST_STAT_UP",
+  CZ_REQUEST_BUY = "CZ_REQUEST_BUY",
+  CZ_REQUEST_SELL = "CZ_REQUEST_SELL",
+  CZ_NPC_SELECT = "CZ_NPC_SELECT",
 
   // Server → Client
   ZC_PONG = "ZC_PONG",
@@ -36,6 +40,12 @@ export enum PacketType {
   ZC_SKILL_CAST = "ZC_SKILL_CAST",
   ZC_CHAT_MESSAGE = "ZC_CHAT_MESSAGE",
   ZC_MAP_CHANGE = "ZC_MAP_CHANGE",
+  ZC_GROUND_ITEM_SPAWN = "ZC_GROUND_ITEM_SPAWN",
+  ZC_GROUND_ITEM_DESPAWN = "ZC_GROUND_ITEM_DESPAWN",
+  ZC_STAT_UPDATE = "ZC_STAT_UPDATE",
+  ZC_NPC_DIALOG = "ZC_NPC_DIALOG",
+  ZC_NPC_SHOP = "ZC_NPC_SHOP",
+  ZC_ZENY_UPDATE = "ZC_ZENY_UPDATE",
   ZC_ERROR = "ZC_ERROR",
 }
 
@@ -117,6 +127,25 @@ export interface CZRequestTalkNpcPayload {
   npcId: string;
 }
 
+export interface CZRequestStatUpPayload {
+  stat: "str" | "agi" | "vit" | "int" | "dex" | "luk";
+}
+
+export interface CZRequestBuyPayload {
+  npcId: string;
+  items: { itemId: string; quantity: number }[];
+}
+
+export interface CZRequestSellPayload {
+  npcId: string;
+  slotIds: number[];
+}
+
+export interface CZNpcSelectPayload {
+  npcId: string;
+  value: string;
+}
+
 // ─── Server → Client payloads ──────────────────────────────────────────
 
 export interface ZCAuthOkPayload {
@@ -175,6 +204,7 @@ export interface ZCEnterWorldPayload {
   inventory?: { slotId: number; itemId: string; quantity: number; isEquipped: boolean }[];
   equipment?: Record<string, string | undefined>;
   skills?: { skillId: string; level: number }[];
+  zeny?: number;
 }
 
 export interface ZCEntitySpawnPayload {
@@ -224,6 +254,9 @@ export interface ZCMapLoadPayload {
   grid: number[][];
   elevation?: number[][];
   entities: EntitySnapshot[];
+  /** If present, client should procedurally generate terrain instead of using grid */
+  seed?: number;
+  tileSize?: number;
 }
 
 export interface ZCHpSpUpdatePayload {
@@ -273,9 +306,55 @@ export interface ZCMapChangePayload {
   position: Position;
 }
 
+export interface ZCGroundItemSpawnPayload {
+  id: string;
+  mapId: string;
+  itemId: string;
+  quantity: number;
+  x: number;
+  y: number;
+}
+
+export interface ZCGroundItemDespawnPayload {
+  id: string;
+  mapId: string;
+}
+
 export interface ZCErrorPayload {
   code: string;
   message: string;
+}
+
+export interface ZCStatUpdatePayload {
+  str: number;
+  agi: number;
+  vit: number;
+  int: number;
+  dex: number;
+  luk: number;
+  statPoints: number;
+  maxHp: number;
+  maxSp: number;
+  currentHp: number;
+  currentSp: number;
+}
+
+export interface ZCNpcDialogPayload {
+  npcId: string;
+  npcName: string;
+  dialog: string;
+  options?: { text: string; value: string }[];
+}
+
+export interface ZCNpcShopPayload {
+  npcId: string;
+  npcName: string;
+  items: { itemId: string; price: number; stock: number }[];
+  sellRate: number;
+}
+
+export interface ZCZenyUpdatePayload {
+  zeny: number;
 }
 
 export type ClientPacket =
@@ -290,6 +369,10 @@ export type ClientPacket =
   | Packet<CZRequestTalkNpcPayload> & { type: PacketType.CZ_REQUEST_TALK_NPC }
   | Packet<CZRequestRevivePayload> & { type: PacketType.CZ_REQUEST_REVIVE }
   | Packet<CZRequestWarpPayload> & { type: PacketType.CZ_REQUEST_WARP }
+  | Packet<CZRequestStatUpPayload> & { type: PacketType.CZ_REQUEST_STAT_UP }
+  | Packet<CZRequestBuyPayload> & { type: PacketType.CZ_REQUEST_BUY }
+  | Packet<CZRequestSellPayload> & { type: PacketType.CZ_REQUEST_SELL }
+  | Packet<CZNpcSelectPayload> & { type: PacketType.CZ_NPC_SELECT }
   | Packet<never> & { type: PacketType.CZ_PING | PacketType.CZ_CHARACTER_LIST };
 
 export type ServerPacket =
@@ -314,4 +397,10 @@ export type ServerPacket =
   | Packet<ZCChatMessagePayload> & { type: PacketType.ZC_CHAT_MESSAGE }
   | Packet<ZCErrorPayload> & { type: PacketType.ZC_ERROR }
   | Packet<ZCMapChangePayload> & { type: PacketType.ZC_MAP_CHANGE }
+  | Packet<ZCGroundItemSpawnPayload> & { type: PacketType.ZC_GROUND_ITEM_SPAWN }
+  | Packet<ZCGroundItemDespawnPayload> & { type: PacketType.ZC_GROUND_ITEM_DESPAWN }
+  | Packet<ZCStatUpdatePayload> & { type: PacketType.ZC_STAT_UPDATE }
+  | Packet<ZCNpcDialogPayload> & { type: PacketType.ZC_NPC_DIALOG }
+  | Packet<ZCNpcShopPayload> & { type: PacketType.ZC_NPC_SHOP }
+  | Packet<ZCZenyUpdatePayload> & { type: PacketType.ZC_ZENY_UPDATE }
   | Packet<never> & { type: PacketType.ZC_PONG };

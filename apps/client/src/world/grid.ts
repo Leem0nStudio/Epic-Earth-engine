@@ -70,6 +70,7 @@ export function findPath(
   endY: number,
   blockedCells?: Set<string>
 ): [number, number][] | null {
+  const elevation = map.elevation;
   // Guard bounds
   if (
     startX < 0 || startX >= map.width || startY < 0 || startY >= map.height ||
@@ -177,8 +178,22 @@ export function findPath(
         continue;
       }
 
+      // Elevation check: block delta > 1, add cost for non-zero change on diagonal
+      if (elevation && elevation[current.y] && elevation[newY]) {
+        const curElev = elevation[current.y][current.x] ?? 0;
+        const nextElev = elevation[newY][newX] ?? 0;
+        const elevDelta = Math.abs(nextElev - curElev);
+        if (elevDelta > 1) continue;
+      }
+
       // G score: 10 for orthogonal, 14 for diagonal (standard approximation of sqrt(2))
-      const jumpCost = d.dx !== 0 && d.dy !== 0 ? 14 : 10;
+      let jumpCost = d.dx !== 0 && d.dy !== 0 ? 14 : 10;
+      // Elevation cost penalty on diagonal: +5 per level
+      if (elevation && elevation[current.y] && elevation[newY] && d.dx !== 0 && d.dy !== 0) {
+        const curElev = elevation[current.y][current.x] ?? 0;
+        const nextElev = elevation[newY][newX] ?? 0;
+        jumpCost += Math.abs(nextElev - curElev) * 5;
+      }
       const gScore = current.g + jumpCost;
 
       const existingOpen = openSet.get(neighborKey);

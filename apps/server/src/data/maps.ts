@@ -1,5 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
+import { buildWalkableMatrix, walkableMatrixToGrid } from "@epic-earth/shared";
+import type { ProceduralMapConfig } from "@epic-earth/shared";
 
 interface PortalEntry {
   id: string;
@@ -14,6 +16,7 @@ interface MapData {
   width: number;
   height: number;
   grid: number[][];
+  elevation?: number[][];
   portals: PortalEntry[];
 }
 
@@ -41,8 +44,9 @@ function loadMap(id: string): void {
         });
       }
     }
+    const elev = nav.elevation && Array.isArray(nav.elevation) ? nav.elevation : undefined;
     if (nav && typeof nav.width === "number" && typeof nav.height === "number" && Array.isArray(nav.grid)) {
-      maps.set(id, { width: nav.width, height: nav.height, grid: nav.grid, portals: portalList });
+      maps.set(id, { width: nav.width, height: nav.height, grid: nav.grid, elevation: elev, portals: portalList });
       console.log(`[Maps] loaded "${id}": ${nav.width}x${nav.height}, ${portalList.length} portals`);
     } else {
       console.warn(`[Maps] map "${id}" — missing navigation layer`);
@@ -52,9 +56,29 @@ function loadMap(id: string): void {
   }
 }
 
-export function initMaps(mapIds: string[]): void {
+function loadProceduralMap(id: string, config: ProceduralMapConfig): void {
+  const walkable = buildWalkableMatrix(config.seed, config.width, config.height, config.waterLevel, config.cliffThreshold);
+  const grid = walkableMatrixToGrid(walkable);
+  const portalList: PortalEntry[] = (config.portals ?? []).map(p => ({
+    id: p.id,
+    x: p.fromX,
+    y: p.fromY,
+    targetMapId: p.toMapId,
+    targetX: p.toX,
+    targetY: p.toY,
+  }));
+  maps.set(id, { width: config.width, height: config.height, grid, portals: portalList });
+  console.log(`[Maps] loaded procedural "${id}": ${config.width}x${config.height} seed=${config.seed}, ${portalList.length} portals`);
+}
+
+export function initMaps(mapIds: string[], procedural?: Record<string, ProceduralMapConfig>): void {
   for (const id of mapIds) {
     loadMap(id);
+  }
+  if (procedural) {
+    for (const [id, config] of Object.entries(procedural)) {
+      loadProceduralMap(id, config);
+    }
   }
 }
 

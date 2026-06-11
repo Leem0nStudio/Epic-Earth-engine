@@ -1,7 +1,8 @@
 import { PlayerSession } from "../session/PlayerSession";
 import { WorldRoom } from "./WorldRoom";
-import { PacketType, getXpRequired } from "@epic-earth/shared";
+import { PacketType, getXpRequired, calculateDerivedStats } from "@epic-earth/shared";
 import type { EntitySnapshot } from "@epic-earth/shared";
+import { updateCharacterStats, getJobHpSpFactor } from "../db/characters";
 import * as fs from "fs";
 import { resolve } from "path";
 
@@ -44,11 +45,22 @@ interface MonsterCatalogEntry {
   aiType: string;
   stats: { str: number; agi: number; vit: number; int: number; dex: number; luk: number };
   atkSpeed?: number;
+  drops?: { itemId: string; rate: number }[];
+}
+
+interface GroundItemEntry {
+  id: string;
+  itemId: string;
+  quantity: number;
+  x: number;
+  y: number;
+  droppedAt: number;
 }
 
 interface GameMapState {
   monsters: Map<string, MonsterState>;
   spawnDefs: MonsterSpawnDef[];
+  groundItems: Map<string, GroundItemEntry>;
   initialized: boolean;
 }
 
@@ -90,8 +102,13 @@ export class GameWorld {
   ensureMap(mapId: string): void {
     if (this.maps.has(mapId)) return;
     const mapState = this.loadMapSpawns(mapId);
-    if (!mapState) return;
-    this.maps.set(mapId, mapState);
+    if (mapState) {
+      this.maps.set(mapId, mapState);
+    } else {
+      // Procedural or unknown map — create an empty state
+      this.maps.set(mapId, { monsters: new Map(), spawnDefs: [], groundItems: new Map(), initialized: true });
+      return;
+    }
 
     const sessions = WorldRoom.getSessions(mapId);
     if (sessions.length === 0) return;
@@ -144,6 +161,40 @@ export class GameWorld {
     return result;
   }
 
+  /** Roll drops for a monster and spawn ground items. Returns spawned ground item entries. */
+  rollDrops(mapId: string, monsterId: string, x: number, y: number): GroundItemEntry[] {
+    this.ensureMap(mapId);
+    const mapState = this.maps.get(mapId);
+    if (!mapState) return [];
+
+    const cat = this.monsterCatalog.get(monsterId);
+    if (!cat?.drops) return [];
+
+    const spawned: GroundItemEntry[] = [];
+    for (const drop of cat.drops) {
+      if (Math.random() < drop.rate) {
+        const id = `gi_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const entry: GroundItemEntry = {
+          id,
+          itemId: drop.itemId,
+          quantity: 1,
+          x, y,
+          droppedAt: Date.now(),
+        };
+        mapState.groundItems.set(id, entry);
+        spawned.push(entry);
+      }
+    }
+    return spawned;
+  }
+
+  /** Remove a ground item from the world. Returns true if found and removed. */
+  removeGroundItem(mapId: string, groundItemId: string): boolean {
+    const mapState = this.maps.get(mapId);
+    if (!mapState) return false;
+    return mapState.groundItems.delete(groundItemId);
+  }
+
   private loadMapSpawns(mapId: string): GameMapState | null {
     const mapPath = resolve(WORLD_DATA_DIR, `${mapId}.json`);
     if (!fs.existsSync(mapPath)) return null;
@@ -151,7 +202,7 @@ export class GameWorld {
       const raw = JSON.parse(fs.readFileSync(mapPath, "utf-8"));
       const spawns = raw.spawns;
       if (!spawns || !Array.isArray(spawns.monsters)) {
-        return { monsters: new Map(), spawnDefs: [], initialized: true };
+        return { monsters: new Map(), spawnDefs: [], groundItems: new Map(), initialized: true };
       }
       const spawnDefs: MonsterSpawnDef[] = spawns.monsters.map((s: any) => ({
         id: s.id,
@@ -163,7 +214,7 @@ export class GameWorld {
         radius: s.radius ?? 0,
       }));
       const monsters = this.createMonsterInstances(spawnDefs);
-      return { monsters, spawnDefs, initialized: true };
+      return { monsters, spawnDefs, groundItems: new Map(), initialized: true };
     } catch {
       return null;
     }
@@ -398,11 +449,28 @@ export class GameWorld {
             }
             if (leveled) {
               // Recalculate max HP/SP from new level
+              const derived = calculateDerivedStats(
+                { str: attacker.stats.str, agi: attacker.stats.agi, vit: attacker.stats.vit, int: attacker.stats.int, dex: attacker.stats.dex, luk: attacker.stats.luk },
+                attacker.baseLevel,
+                getJobHpSpFactor(attacker.jobId ?? "novice").hpFactor,
+                getJobHpSpFactor(attacker.jobId ?? "novice").spFactor,
+              );
+              attacker.maxHp = derived.maxHp;
+              attacker.maxSp = derived.maxSp;
+              attacker.currentHp = Math.min(attacker.currentHp, derived.maxHp);
+              attacker.currentSp = Math.min(attacker.currentSp, derived.maxSp);
+
               attacker.send(PacketType.ZC_LEVEL_UP, {
                 baseLevel: attacker.baseLevel,
                 jobLevel: attacker.jobLevel,
                 statPoints: attacker.statPoints,
                 skillPoints: attacker.skillPoints,
+              });
+              attacker.send(PacketType.ZC_HP_SP_UPDATE, {
+                currentHp: attacker.currentHp,
+                maxHp: attacker.maxHp,
+                currentSp: attacker.currentSp,
+                maxSp: attacker.maxSp,
               });
             }
             attacker.send(PacketType.ZC_EXP_UPDATE, {
@@ -411,8 +479,39 @@ export class GameWorld {
               xpNeededBase: attacker.xpNeededBase,
               xpNeededJob: attacker.xpNeededJob,
             });
+
+            // Persist to DB
+            updateCharacterStats(attacker.characterId!, {
+              baseLevel: attacker.baseLevel,
+              jobLevel: attacker.jobLevel,
+              baseXp: attacker.baseXp,
+              jobXp: attacker.jobXp,
+              statPoints: attacker.statPoints,
+              skillPoints: attacker.skillPoints,
+              str: attacker.stats.str,
+              agi: attacker.stats.agi,
+              vit: attacker.stats.vit,
+              int: attacker.stats.int,
+              dex: attacker.stats.dex,
+              luk: attacker.stats.luk,
+              currentHp: attacker.currentHp,
+              currentSp: attacker.currentSp,
+            });
           }
         }
+      }
+
+      // Roll drops and broadcast ground items
+      const drops = this.rollDrops(mapId, monster.monsterId, monster.x, monster.y);
+      for (const d of drops) {
+        WorldRoom.broadcast(mapId, PacketType.ZC_GROUND_ITEM_SPAWN, {
+          id: d.id,
+          mapId,
+          itemId: d.itemId,
+          quantity: d.quantity,
+          x: d.x,
+          y: d.y,
+        });
       }
     }
     return true;

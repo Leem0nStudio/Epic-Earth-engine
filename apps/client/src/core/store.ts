@@ -151,6 +151,8 @@ export interface GameState {
   withdrawFromCart: (itemId: string, quantity: number) => void;
   dropItem: (itemId: string, quantity: number) => void;
   pickUpGroundItem: (groundItemId: string) => void;
+  addGroundItem: (item: GroundItem) => void;
+  removeGroundItem: (id: string) => void;
   rentCart: () => void;
   unrentCart: () => void;
   spawnRandomGroundItem: (itemId?: string, x?: number, y?: number) => void;
@@ -239,7 +241,7 @@ export const useGameStore = create<GameState>((set, get) => {
     itemsCatalog: itemsData.items as unknown as ItemDefinition[],
 
     initializeGame: () => {
-      const { addLog, serverEnterWorld, ecsWorld } = get();
+      const { addLog, serverEnterWorld, ecsWorld, currentMap } = get();
 
       addLog("System: Initializing world...", "system");
 
@@ -247,7 +249,17 @@ export const useGameStore = create<GameState>((set, get) => {
         const mapId = serverEnterWorld.mapId;
         const sx = Math.round(serverEnterWorld.position.x);
         const sy = Math.round(serverEnterWorld.position.y);
-        worldRuntime.loadMap(mapId, get(), sx, sy);
+
+        // If the map is already loaded (procedural via onMapLoad), just reposition
+        if (currentMap.seed && currentMap.id === mapId) {
+          const player = ecsWorld.getEntity(get().playerEntityId);
+          if (player?.components.position) {
+            player.components.position.x = sx;
+            player.components.position.y = sy;
+          }
+        } else {
+          worldRuntime.loadMap(mapId, get(), sx, sy);
+        }
 
         // Remove locally-spawned monsters; server is authoritative
         const allEntities = ecsWorld.getAllEntities();
@@ -885,6 +897,13 @@ export const useGameStore = create<GameState>((set, get) => {
     },
 
     allocateStatPoint: (stat) => {
+      const ch = getChannel();
+      if (ch) {
+        ch.requestStatUp(stat);
+        return;
+      }
+
+      // Offline fallback: client-only stat allocation
       const ecs = get().ecsWorld;
       const player = ecs.getEntity(get().playerEntityId);
       if (!player || !player.components.stats || !player.components.job) return;
@@ -892,17 +911,12 @@ export const useGameStore = create<GameState>((set, get) => {
       const statsComp = player.components.stats as any;
       const baseKey = `base${stat.charAt(0).toUpperCase()}${stat.slice(1)}`;
       
-      // Safe initialization of base stats if undefined
       if (statsComp[baseKey] === undefined) {
         statsComp[baseKey] = statsComp[stat] || 9;
       }
 
-      // Increment raw base stat!
       statsComp[baseKey] += 1;
-
-      // Centralized properties refresh
       get().recalculatePlayerStats();
-
       get().addLog(`System: Point allocated to ${stat.toUpperCase()}. Stats updated.`, "system");
       set({ gameTickCount: get().gameTickCount + 1 });
     },
@@ -1473,6 +1487,14 @@ export const useGameStore = create<GameState>((set, get) => {
       get().addLog(`System: Picked up ${targetItem.quantity}x ${item.name} from the ground.`, "info");
       get().recalculatePlayerStats();
       set({ gameTickCount: get().gameTickCount + 1 });
+    },
+
+    addGroundItem: (item) => {
+      set({ groundItems: [...get().groundItems, item] });
+    },
+
+    removeGroundItem: (id) => {
+      set({ groundItems: get().groundItems.filter((g) => g.id !== id) });
     },
 
     rentCart: () => {

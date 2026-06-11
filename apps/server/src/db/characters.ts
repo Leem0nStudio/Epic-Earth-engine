@@ -2,6 +2,51 @@ import { getServiceClient } from ".";
 import type { CharacterEntry, PrimaryStats } from "@epic-earth/shared";
 import { calculateDerivedStats, getXpRequired } from "@epic-earth/shared";
 
+export async function addInventoryItem(
+  characterId: string,
+  itemId: string,
+  quantity: number
+): Promise<{ ok: true; slotId: number } | { ok: false; error: string }> {
+  const supabase = getServiceClient();
+
+  // Find existing slot with same item (non-equipped)
+  const { data: existing } = await supabase
+    .from("character_inventory")
+    .select("slot_id, quantity")
+    .eq("character_id", characterId)
+    .eq("item_id", itemId)
+    .eq("is_equipped", false)
+    .limit(1)
+    .single();
+
+  if (existing) {
+    const { error } = await supabase
+      .from("character_inventory")
+      .update({ quantity: existing.quantity + quantity })
+      .eq("character_id", characterId)
+      .eq("slot_id", existing.slot_id);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, slotId: existing.slot_id };
+  }
+
+  // Find next free slot
+  const { data: maxSlot } = await supabase
+    .from("character_inventory")
+    .select("slot_id")
+    .eq("character_id", characterId)
+    .order("slot_id", { ascending: false })
+    .limit(1)
+    .single();
+
+  const nextSlot = (maxSlot?.slot_id ?? 0) + 1;
+
+  const { error } = await supabase
+    .from("character_inventory")
+    .insert({ character_id: characterId, slot_id: nextSlot, item_id: itemId, quantity });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, slotId: nextSlot };
+}
+
 interface CharacterRow {
   id: string;
   account_id: string;
@@ -145,9 +190,9 @@ export async function createCharacter(
       luk: defaults.luk,
       current_hp: derived.maxHp,
       current_sp: derived.maxSp,
-      map_id: "prontera_city",
-      pos_x: 15,
-      pos_y: 15,
+      map_id: "wild_plains",
+      pos_x: 25,
+      pos_y: 25,
       zeny: 500,
     })
     .select()
@@ -172,6 +217,110 @@ export async function updateCharacterPosition(characterId: string, x: number, y:
   if (error) {
     console.error("[DB] updateCharacterPosition error:", error);
   }
+}
+
+export async function updateCharacterStats(
+  characterId: string,
+  stats: {
+    baseLevel: number;
+    jobLevel: number;
+    baseXp: number;
+    jobXp: number;
+    statPoints: number;
+    skillPoints: number;
+    str: number;
+    agi: number;
+    vit: number;
+    int: number;
+    dex: number;
+    luk: number;
+    currentHp: number;
+    currentSp: number;
+  }
+): Promise<void> {
+  const supabase = getServiceClient();
+  const { error } = await supabase
+    .from("characters")
+    .update({
+      base_level: stats.baseLevel,
+      job_level: stats.jobLevel,
+      base_xp: stats.baseXp,
+      job_xp: stats.jobXp,
+      stat_points: stats.statPoints,
+      skill_points: stats.skillPoints,
+      str: stats.str,
+      agi: stats.agi,
+      vit: stats.vit,
+      int: stats.int,
+      dex: stats.dex,
+      luk: stats.luk,
+      current_hp: stats.currentHp,
+      current_sp: stats.currentSp,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", characterId);
+  if (error) {
+    console.error("[DB] updateCharacterStats error:", error);
+  }
+}
+
+export async function updateZeny(characterId: string, zeny: number): Promise<void> {
+  const supabase = getServiceClient();
+  const { error } = await supabase
+    .from("characters")
+    .update({ zeny, updated_at: new Date().toISOString() })
+    .eq("id", characterId);
+  if (error) {
+    console.error("[DB] updateZeny error:", error);
+  }
+}
+
+export async function removeInventoryItem(characterId: string, slotId: number, quantity: number): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = getServiceClient();
+
+  const { data: row } = await supabase
+    .from("character_inventory")
+    .select("slot_id, quantity")
+    .eq("character_id", characterId)
+    .eq("slot_id", slotId)
+    .single();
+
+  if (!row) {
+    return { ok: false, error: "item not found in inventory" };
+  }
+
+  if (row.quantity <= quantity) {
+    const { error } = await supabase
+      .from("character_inventory")
+      .delete()
+      .eq("character_id", characterId)
+      .eq("slot_id", slotId);
+    if (error) return { ok: false, error: error.message };
+  } else {
+    const { error } = await supabase
+      .from("character_inventory")
+      .update({ quantity: row.quantity - quantity })
+      .eq("character_id", characterId)
+      .eq("slot_id", slotId);
+    if (error) return { ok: false, error: error.message };
+  }
+
+  return { ok: true };
+}
+
+export async function getInventory(characterId: string): Promise<{ slotId: number; itemId: string; quantity: number; isEquipped: boolean }[]> {
+  const supabase = getServiceClient();
+  const { data } = await supabase
+    .from("character_inventory")
+    .select("slot_id, item_id, quantity, is_equipped")
+    .eq("character_id", characterId)
+    .order("slot_id");
+  return (data || []).map((r: any) => ({
+    slotId: r.slot_id,
+    itemId: r.item_id,
+    quantity: r.quantity,
+    isEquipped: r.is_equipped,
+  }));
 }
 
 export async function getCharacter(characterId: string): Promise<CharacterRow | null> {
@@ -309,4 +458,9 @@ export async function selectCharacter(
       skills,
     },
   };
+}
+
+export function getJobHpSpFactor(jobId: string): { hpFactor: number; spFactor: number } {
+  const d = jobDefaults[jobId] ?? jobDefaults.novice;
+  return { hpFactor: d.hpFactor, spFactor: d.spFactor };
 }

@@ -65,9 +65,13 @@ export interface MapInstance {
   width: number;
   height: number;
   cells: GridCell[][];
+  elevation?: number[][];
   portals: PortalDefinition[];
   npcs: NpcDefinition[];
   monstersSpawnList: MonsterSpawnDefinition[];
   regions?: MapRegion[];
   definition: MapDefinition;
+  /** Present for procedurally generated maps */
+  seed?: number;
+  tileSize?: number;
 }

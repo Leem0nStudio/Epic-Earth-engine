@@ -10,6 +10,7 @@ import type {
   ZCEntityDamagePayload, ZCEntityDeathPayload, ZCEntityUpdatePayload,
   ZCMapLoadPayload, ZCMapChangePayload, ZCHpSpUpdatePayload, ZCExpUpdatePayload,
   ZCLevelUpPayload, ZCInventoryUpdatePayload, ZCSkillCastPayload, ZCChatMessagePayload,
+  ZCStatUpdatePayload,
 } from "@epic-earth/shared";
 import { worldRuntime } from "../world/WorldLoader";
 import LoginScreen from "./auth/LoginScreen";
@@ -137,10 +138,73 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           ent.components.stats.currentHp = Math.round((payload.hpPercent / 100) * ent.components.stats.maxHp);
         }
       },
-      onMapLoad: () => {},
+      onMapLoad: (payload: ZCMapLoadPayload) => {
+        if (payload.seed !== undefined) {
+          // Procedural map — build MapInstance from seed/grid
+          const store = useGameStore.getState();
+          const mapInstance = worldRuntime.createProceduralMap(
+            payload.mapId,
+            payload.seed,
+            payload.width,
+            payload.height,
+            payload.grid,
+            payload.tileSize ?? 2,
+          );
+          worldRuntime.loadProceduralMap(payload.mapId, mapInstance, store);
+        }
+      },
       onMapChange: (payload) => {
         const store = useGameStore.getState();
-        worldRuntime.loadMap(payload.mapId, store, payload.position.x, payload.position.y);
+        const isProcedural = store.currentMap?.seed != null;
+        if (isProcedural) {
+          // Procedural map already loaded by onMapLoad; just reposition the player
+          const player = store.ecsWorld.getEntity(store.playerEntityId);
+          if (player?.components.position) {
+            player.components.position.x = payload.position.x;
+            player.components.position.y = payload.position.y;
+            player.components.position.targetX = undefined;
+            player.components.position.targetY = undefined;
+            player.components.position.path = [];
+          }
+        } else {
+          // Static map — load from JSON registry
+          worldRuntime.loadMap(payload.mapId, store, payload.position.x, payload.position.y, false);
+        }
+      },
+      onGroundItemSpawn: (payload) => {
+        const store = useGameStore.getState();
+        const newItem = {
+          id: payload.id,
+          itemId: payload.itemId,
+          quantity: payload.quantity,
+          x: payload.x,
+          y: payload.y,
+          droppedAt: Date.now(),
+        };
+        store.addGroundItem(newItem);
+      },
+      onGroundItemDespawn: (payload) => {
+        const store = useGameStore.getState();
+        store.removeGroundItem(payload.id);
+      },
+      onStatUpdate: (payload: ZCStatUpdatePayload) => {
+        const store = useGameStore.getState();
+        const player = store.ecsWorld.getEntity(store.playerEntityId);
+        if (!player?.components.stats) return;
+        const stats = player.components.stats as any;
+        stats.str = payload.str;
+        stats.agi = payload.agi;
+        stats.vit = payload.vit;
+        stats.int = payload.int;
+        stats.dex = payload.dex;
+        stats.luk = payload.luk;
+        stats.statPoints = payload.statPoints;
+        stats.maxHp = payload.maxHp;
+        stats.maxSp = payload.maxSp;
+        stats.currentHp = Math.min(stats.currentHp, payload.maxHp);
+        stats.currentSp = Math.min(stats.currentSp, payload.maxSp);
+        store.recalculatePlayerStats();
+        store.addLog(`Stats updated — STR:${payload.str} AGI:${payload.agi} VIT:${payload.vit} INT:${payload.int} DEX:${payload.dex} LUK:${payload.luk}`, "system");
       },
       onHpSpUpdate: (payload: ZCHpSpUpdatePayload) => {
         const ecs = useGameStore.getState().ecsWorld;
@@ -172,6 +236,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         player.components.job.skillPoints = (player.components.job.skillPoints ?? 0) + payload.skillPoints;
         const stats = player.components.stats as any;
         stats.statPoints = (stats.statPoints ?? 0) + payload.statPoints;
+        store.recalculatePlayerStats();
         store.addLog(`Level up! You are now base level ${payload.baseLevel}.`, "system");
         store.addNotification({
           type: "levelup",
@@ -180,7 +245,13 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           durationMs: 5000,
         });
       },
-      onInventoryUpdate: () => {},
+      onInventoryUpdate: (payload: ZCInventoryUpdatePayload) => {
+        const store = useGameStore.getState();
+        const player = store.ecsWorld.getEntity(store.playerEntityId);
+        if (player?.components.inventory) {
+          player.components.inventory.slots = payload.slots;
+        }
+      },
       onSkillCast: () => {},
       onChatMessage: (payload: ZCChatMessagePayload) => {
         useGameStore.getState().addLog(

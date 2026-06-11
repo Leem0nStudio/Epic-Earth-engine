@@ -132,7 +132,8 @@ export function findPathOnGrid(
   startY: number,
   endX: number,
   endY: number,
-  occupied?: Set<number>
+  occupied?: Set<number>,
+  elevation?: number[][]
 ): [number, number][] | null {
   if (startX < 0 || startX >= width || startY < 0 || startY >= height) return null;
   if (endX < 0 || endX >= width || endY < 0 || endY >= height) return null;
@@ -186,7 +187,21 @@ export function findPathOnGrid(
       if (occupied && occupied.has(hash(nx, ny)) && !(nx === endX && ny === endY)) continue;
       if (dx !== 0 && dy !== 0 && grid[cur.y][nx] === 0 && grid[ny][cur.x] === 0) continue;
 
-      const g = cur.g + (dx !== 0 && dy !== 0 ? 1.414 : 1);
+      // Elevation check: block delta > 1, add cost for non-zero delta on diagonal
+      if (elevation && elevation[cur.y] && elevation[ny]) {
+        const curElev = elevation[cur.y][cur.x] ?? 0;
+        const nextElev = elevation[ny][nx] ?? 0;
+        const elevDelta = Math.abs(nextElev - curElev);
+        if (elevDelta > 1) continue;
+      }
+
+      let g = cur.g + (dx !== 0 && dy !== 0 ? 1.414 : 1);
+      // Elevation cost penalty: +0.5 per level of elevation change when moving diagonally
+      if (elevation && elevation[cur.y] && elevation[ny] && dx !== 0 && dy !== 0) {
+        const curElev = elevation[cur.y][cur.x] ?? 0;
+        const nextElev = elevation[ny][nx] ?? 0;
+        g += Math.abs(nextElev - curElev) * 0.5;
+      }
       const h = Math.max(Math.abs(endX - nx), Math.abs(endY - ny));
       const f = g + h;
 

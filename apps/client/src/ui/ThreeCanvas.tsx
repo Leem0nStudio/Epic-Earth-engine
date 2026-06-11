@@ -2,10 +2,13 @@
 
 import React, { useRef, useEffect, useMemo } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import { useGameStore } from "../core/store";
 import { CellType } from "../world/types";
+import ProceduralMapRenderer from "../render/ProceduralMapRenderer";
+import CameraController from "../render/CameraController";
+import { screenToCell } from "../movement/GridMovement";
+import { getChannel } from "../network";
 
 interface EntityMesh {
   group: THREE.Group;
@@ -141,7 +144,7 @@ function disposeEntityMesh(em: EntityMesh) {
   }
 }
 
-function ClickHandler({ entityGroupRef, tileGroupRef }: { entityGroupRef: React.RefObject<THREE.Group | null>; tileGroupRef: React.RefObject<THREE.Group | null> }) {
+function ClickHandler({ entityGroupRef, tileGroupRef, groundItemGroupRef }: { entityGroupRef: React.RefObject<THREE.Group | null>; tileGroupRef: React.RefObject<THREE.Group | null>; groundItemGroupRef?: React.RefObject<THREE.Group | null> }) {
   const { gl, camera } = useThree();
   const selectEntity = useGameStore((s) => s.selectEntity);
   const movePlayerTo = useGameStore((s) => s.movePlayerTo);
@@ -167,7 +170,6 @@ function ClickHandler({ entityGroupRef, tileGroupRef }: { entityGroupRef: React.
           if (obj && obj.userData.entityId) {
             const clickedId = obj.userData.entityId;
             selectEntity(clickedId);
-            // Attack monsters on click
             const ecs = useGameStore.getState().ecsWorld;
             const ent = ecs.getEntity(clickedId);
             if (ent && ent.components.identity?.type === "monster") {
@@ -178,9 +180,42 @@ function ClickHandler({ entityGroupRef, tileGroupRef }: { entityGroupRef: React.
         }
       }
 
-      // Fall back to map tiles
+      // Check ground items next
+      const groundGroup = groundItemGroupRef?.current;
+      if (groundGroup) {
+        const hits = raycaster.intersectObjects(groundGroup.children, true);
+        if (hits.length > 0) {
+          let obj: THREE.Object3D | null = hits[0].object;
+          while (obj && !obj.userData.groundItemId) obj = obj.parent;
+          if (obj && obj.userData.groundItemId) {
+            const itemId = obj.userData.groundItemId;
+            const ch = getChannel();
+            if (ch) {
+              ch.requestPickup(itemId);
+            } else {
+              // Offline/single-player fallback
+              useGameStore.getState().pickUpGroundItem(itemId);
+            }
+            return;
+          }
+        }
+      }
+
+      const currentMap = useGameStore.getState().currentMap;
       const tileGroup = tileGroupRef.current;
-      if (tileGroup) {
+
+      if (currentMap.seed && tileGroup) {
+        // Procedural map — raycast terrain and convert hit to grid coords
+        const hits = raycaster.intersectObjects(tileGroup.children, false);
+        if (hits.length > 0) {
+          const p = hits[0].point;
+          const cell = screenToCell(p.x, p.z, currentMap);
+          if (cell) {
+            movePlayerTo(cell.col, cell.row);
+          }
+        }
+      } else if (tileGroup) {
+        // Static map — use clickPos userData on individual tiles
         const hits = raycaster.intersectObjects(tileGroup.children, true);
         if (hits.length > 0) {
           let obj: THREE.Object3D | null = hits[0].object;
@@ -193,7 +228,7 @@ function ClickHandler({ entityGroupRef, tileGroupRef }: { entityGroupRef: React.
     };
     gl.domElement.addEventListener("click", handler);
     return () => gl.domElement.removeEventListener("click", handler);
-  }, [gl, camera, selectEntity, movePlayerTo, attackEntity, entityGroupRef, tileGroupRef]);
+  }, [gl, camera, selectEntity, movePlayerTo, attackEntity, entityGroupRef, tileGroupRef, groundItemGroupRef]);
 
   return null;
 }
@@ -383,7 +418,7 @@ function MapDecorations() {
   );
 }
 
-function GroundItemsLayer() {
+function GroundItemsLayer({ groupRef }: { groupRef?: React.RefObject<THREE.Group | null> }) {
   const groundItems = useGameStore((s) => s.groundItems || []);
   const itemsCatalog = useGameStore((s) => s.itemsCatalog || []);
   const pickUpGroundItem = useGameStore((s) => s.pickUpGroundItem);
@@ -406,13 +441,14 @@ function GroundItemsLayer() {
       );
       ring.rotation.x = -Math.PI / 2;
       ring.position.set(item!.x + 0.5, 0.01, item!.y + 0.5);
+      ring.userData.groundItemId = item!.id;
       pool.push(ring);
     }
     return pool;
   }, [itemDefs]);
 
   return (
-    <group position={[-currentMap.width / 2, 0, -currentMap.height / 2]}>
+    <group ref={groupRef} position={[-currentMap.width / 2, 0, -currentMap.height / 2]}>
       {meshes.map((mesh, i) => (
         <primitive key={itemDefs[i]?.id || i} object={mesh} />
       ))}
@@ -423,6 +459,10 @@ function GroundItemsLayer() {
 function SceneContent() {
   const tileGroupRef = useRef<THREE.Group>(null);
   const entityGroupRef = useRef<THREE.Group>(null);
+  const vegGroupRef = useRef<THREE.Group>(null);
+  const groundItemGroupRef = useRef<THREE.Group>(null);
+  const currentMap = useGameStore((s) => s.currentMap);
+  const isProcedural = !!currentMap.seed;
 
   return (
     <>
@@ -430,19 +470,20 @@ function SceneContent() {
       <directionalLight position={[10, 20, 10]} intensity={1.8} castShadow />
       <pointLight position={[0, 10, 0]} intensity={1.0} />
 
-      <MapTiles groupRef={tileGroupRef} />
+      {isProcedural ? (
+        <>
+          <ProceduralMapRenderer tileGroupRef={tileGroupRef} vegGroupRef={vegGroupRef} />
+          <group ref={vegGroupRef} />
+        </>
+      ) : (
+        <MapTiles groupRef={tileGroupRef} />
+      )}
       <EntityLayer groupRef={entityGroupRef} />
-      <ClickHandler entityGroupRef={entityGroupRef} tileGroupRef={tileGroupRef} />
+      <ClickHandler entityGroupRef={entityGroupRef} tileGroupRef={tileGroupRef} groundItemGroupRef={groundItemGroupRef} />
       <MapDecorations />
-      <GroundItemsLayer />
+      <GroundItemsLayer groupRef={groundItemGroupRef} />
 
-      <OrbitControls
-        enableDamping
-        dampingFactor={0.05}
-        maxPolarAngle={Math.PI / 2.2}
-        minDistance={5}
-        maxDistance={40}
-      />
+      <CameraController followEnabled isometric />
     </>
   );
 }

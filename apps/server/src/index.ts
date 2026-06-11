@@ -5,19 +5,40 @@ import * as fs from "fs";
 import * as path from "path";
 import { PlayerSession } from "./session/PlayerSession";
 import { verifyToken } from "./auth";
-import { listCharacters, createCharacter, selectCharacter, ensureAccount, updateCharacterPosition } from "./db/characters";
+import { listCharacters, createCharacter, selectCharacter, ensureAccount, updateCharacterPosition, addInventoryItem, updateCharacterStats, getJobHpSpFactor, updateZeny, removeInventoryItem, getInventory } from "./db/characters";
 import { WorldRoom } from "./systems/WorldRoom";
 import { SkillSystem, initSkillCatalog } from "./systems/SkillSystem";
 import { initMaps, getMap, validatePortal } from "./data/maps";
 import { GameWorld } from "./systems/GameWorld";
+import { getShop, getShopItems, getItemData, loadItemCatalog } from "./data/shops";
 import type {
   ClientPacket, CZCharacterCreatePayload, CZCharacterSelectPayload,
   CZRequestMovePayload, CZRequestUseSkillPayload, CZRequestAttackPayload,
-  CZRequestWarpPayload,
+  CZRequestWarpPayload, CZRequestPickupPayload, CZRequestStatUpPayload,
+  CZRequestBuyPayload, CZRequestSellPayload, CZNpcSelectPayload,
+  EntitySnapshot,
+  ZCStatUpdatePayload, ZCNpcDialogPayload, ZCNpcShopPayload, ZCZenyUpdatePayload,
 } from "@epic-earth/shared";
-import { PacketType, findPathOnGrid, MAP_CATALOG } from "@epic-earth/shared";
+import { PacketType, findPathOnGrid, MAP_CATALOG, calculateDerivedStats } from "@epic-earth/shared";
+import type { ProceduralMapConfig } from "@epic-earth/shared";
 
 const PORT = parseInt(process.env.PORT || "3001", 10) || 3001;
+
+// Procedural map definitions (these are generated via simplex-noise)
+const PROCEDURAL_MAPS: Record<string, ProceduralMapConfig> = {
+  "wild_plains": {
+    seed: 42,
+    width: 50,
+    height: 50,
+    tileSize: 2,
+    waterLevel: -0.25,
+    cliffThreshold: 0.85,
+    portals: [
+      { id: "wp_to_city", fromX: 24, fromY: 48, toMapId: "prontera_city", toX: 15, toY: 15 },
+    ],
+    spawnPoint: { x: 25, y: 0, z: 25 },
+  },
+};
 
 // Load skills from client data
 const skillsPath = path.resolve(__dirname, "../../../apps/client/src/data/skills.json");
@@ -29,6 +50,8 @@ try {
 } catch (e) {
   console.warn("[Server] could not load skill catalog:", (e as Error).message);
 }
+
+loadItemCatalog();
 
 const gameWorld = new GameWorld();
 const sessions = new Map<WebSocket, PlayerSession>();
@@ -188,6 +211,19 @@ async function handlePacket(session: PlayerSession, packet: ClientPacket): Promi
 
       const existingEntities = WorldRoom.join(session);
 
+      // Send map init data (grid for static, seed for procedural)
+      const procConfig = PROCEDURAL_MAPS[result.data.character.mapId];
+      if (procConfig) {
+        WorldRoom.sendInitMap(session, {
+          seed: procConfig.seed,
+          width: procConfig.width,
+          height: procConfig.height,
+          tileSize: procConfig.tileSize,
+        });
+      } else {
+        WorldRoom.sendInitMap(session);
+      }
+
       const monsterSnapshots = gameWorld.getMonsterSnapshots(result.data.character.mapId);
       if (monsterSnapshots.length > 0) {
         existingEntities.push(...monsterSnapshots);
@@ -204,6 +240,7 @@ async function handlePacket(session: PlayerSession, packet: ClientPacket): Promi
         inventory: result.data.inventory,
         equipment: result.data.equipment,
         skills: result.data.skills,
+        zeny: result.data.stats.statPoints, // FIXME: use actual zeny from DB
       });
       return;
     }
@@ -244,7 +281,7 @@ async function handlePacket(session: PlayerSession, packet: ClientPacket): Promi
             if (other.characterId === session.characterId) continue;
             occupied.add(other.y * mapData.width + other.x);
           }
-          const path = findPathOnGrid(mapData.grid, mapData.width, mapData.height, session.x, session.y, targetX, targetY, occupied);
+          const path = findPathOnGrid(mapData.grid, mapData.width, mapData.height, session.x, session.y, targetX, targetY, occupied, mapData.elevation);
           if (!path) {
             session.send(PacketType.ZC_ERROR, { code: "MOVE_BLOCKED", message: "path blocked" });
             return;
@@ -351,6 +388,259 @@ async function handlePacket(session: PlayerSession, packet: ClientPacket): Promi
       return;
     }
 
+    case PacketType.CZ_REQUEST_PICKUP: {
+      if (!session.selectedCharacter) {
+        session.send(PacketType.ZC_ERROR, { code: "NOT_READY", message: "select character first" });
+        return;
+      }
+      const payload = packet.payload as CZRequestPickupPayload;
+      const mapId = session.mapId;
+      if (!mapId) return;
+
+      const mapState = (gameWorld as any).maps.get(mapId);
+      if (!mapState) return;
+      const item = mapState.groundItems.get(payload.groundItemId);
+      if (!item) return;
+
+      // Validate distance (Manhattan <= 2)
+      const dist = Math.abs(session.x - item.x) + Math.abs(session.y - item.y);
+      if (dist > 2) {
+        session.send(PacketType.ZC_ERROR, { code: "PICKUP_TOO_FAR", message: "too far from item" });
+        return;
+      }
+
+      // Add to DB inventory
+      const result = await addInventoryItem(session.characterId!, item.itemId, item.quantity);
+      if (!result.ok) {
+        session.send(PacketType.ZC_ERROR, { code: "PICKUP_FAILED", message: result.error ?? "inventory error" });
+        return;
+      }
+
+      // Remove from world
+      mapState.groundItems.delete(payload.groundItemId);
+
+      // Broadcast despawn to all players in map
+      WorldRoom.broadcast(mapId, PacketType.ZC_GROUND_ITEM_DESPAWN, {
+        id: payload.groundItemId,
+        mapId,
+      });
+
+      // Send targeted inventory update to the picker
+      session.send(PacketType.ZC_INVENTORY_UPDATE, {
+        slots: [{ slotId: result.slotId, itemId: item.itemId, quantity: item.quantity, isEquipped: false }],
+      });
+      return;
+    }
+
+    case PacketType.CZ_REQUEST_STAT_UP: {
+      if (!session.selectedCharacter) {
+        session.send(PacketType.ZC_ERROR, { code: "NOT_READY", message: "select character first" });
+        return;
+      }
+      const statPayload = packet.payload as CZRequestStatUpPayload;
+      const stat = statPayload.stat;
+      if (!["str", "agi", "vit", "int", "dex", "luk"].includes(stat)) {
+        session.send(PacketType.ZC_ERROR, { code: "INVALID_STAT", message: `unknown stat: ${stat}` });
+        return;
+      }
+      if (session.statPoints <= 0) {
+        session.send(PacketType.ZC_ERROR, { code: "NO_STAT_POINTS", message: "no stat points available" });
+        return;
+      }
+
+      session.statPoints -= 1;
+      session.stats[stat] += 1;
+
+      const derived = calculateDerivedStats(
+        { str: session.stats.str, agi: session.stats.agi, vit: session.stats.vit, int: session.stats.int, dex: session.stats.dex, luk: session.stats.luk },
+        session.baseLevel,
+        getJobHpSpFactor(session.jobId ?? "novice").hpFactor,
+        getJobHpSpFactor(session.jobId ?? "novice").spFactor,
+      );
+
+      session.maxHp = derived.maxHp;
+      session.maxSp = derived.maxSp;
+      session.currentHp = Math.min(session.currentHp, derived.maxHp);
+      session.currentSp = Math.min(session.currentSp, derived.maxSp);
+
+      session.send(PacketType.ZC_STAT_UPDATE, {
+        str: session.stats.str,
+        agi: session.stats.agi,
+        vit: session.stats.vit,
+        int: session.stats.int,
+        dex: session.stats.dex,
+        luk: session.stats.luk,
+        statPoints: session.statPoints,
+        maxHp: session.maxHp,
+        maxSp: session.maxSp,
+        currentHp: session.currentHp,
+        currentSp: session.currentSp,
+      });
+
+      // Persist to DB
+      updateCharacterStats(session.characterId!, {
+        baseLevel: session.baseLevel,
+        jobLevel: session.jobLevel,
+        baseXp: session.baseXp,
+        jobXp: session.jobXp,
+        statPoints: session.statPoints,
+        skillPoints: session.skillPoints,
+        str: session.stats.str,
+        agi: session.stats.agi,
+        vit: session.stats.vit,
+        int: session.stats.int,
+        dex: session.stats.dex,
+        luk: session.stats.luk,
+        currentHp: session.currentHp,
+        currentSp: session.currentSp,
+      });
+
+      return;
+    }
+
+    case PacketType.CZ_REQUEST_TALK_NPC: {
+      if (!session.selectedCharacter) {
+        session.send(PacketType.ZC_ERROR, { code: "NOT_READY", message: "select character first" });
+        return;
+      }
+      const talkPayload = packet.payload as { npcId: string };
+      const shop = getShop(talkPayload.npcId);
+      const npcsPath = path.resolve(__dirname, "../../../apps/client/src/data/npcs.json");
+      let npcName = talkPayload.npcId;
+      try {
+        const raw = fs.readFileSync(npcsPath, "utf-8");
+        const parsed = JSON.parse(raw);
+        const npcDef = (parsed.npcs || []).find((n: any) => n.id === talkPayload.npcId);
+        if (npcDef) npcName = npcDef.name;
+      } catch {}
+
+      if (shop) {
+        // NPC is a shop — send shop window directly
+        const shopItems = getShopItems(talkPayload.npcId);
+        session.send(PacketType.ZC_NPC_SHOP, {
+          npcId: talkPayload.npcId,
+          npcName,
+          items: shopItems,
+          sellRate: shop.sellRate,
+        });
+      } else {
+        // Dialog NPC — send dialog
+        const dialogPayload: ZCNpcDialogPayload = {
+          npcId: talkPayload.npcId,
+          npcName,
+          dialog: `Hello! I am ${npcName}. How can I help you?`,
+        };
+        session.send(PacketType.ZC_NPC_DIALOG, dialogPayload);
+      }
+      return;
+    }
+
+    case PacketType.CZ_REQUEST_BUY: {
+      if (!session.selectedCharacter) {
+        session.send(PacketType.ZC_ERROR, { code: "NOT_READY", message: "select character first" });
+        return;
+      }
+      const buyPayload = packet.payload as CZRequestBuyPayload;
+      const shopItems = getShopItems(buyPayload.npcId);
+      let totalCost = 0;
+      const purchases: { itemId: string; quantity: number }[] = [];
+
+      for (const req of buyPayload.items) {
+        const shopItem = shopItems.find((si) => si.itemId === req.itemId);
+        if (!shopItem) {
+          session.send(PacketType.ZC_ERROR, { code: "SHOP_ITEM_NOT_FOUND", message: `Item ${req.itemId} not sold by this NPC` });
+          return;
+        }
+        if (req.quantity <= 0) continue;
+        if (req.quantity > shopItem.stock) {
+          session.send(PacketType.ZC_ERROR, { code: "INSUFFICIENT_STOCK", message: `Not enough stock for ${req.itemId}` });
+          return;
+        }
+        totalCost += shopItem.price * req.quantity;
+        purchases.push({ itemId: req.itemId, quantity: req.quantity });
+      }
+
+      if (session.zeny < totalCost) {
+        session.send(PacketType.ZC_ERROR, { code: "INSUFFICIENT_ZENY", message: `Need ${totalCost} zeny, have ${session.zeny}` });
+        return;
+      }
+
+      // Deduct zeny
+      session.zeny -= totalCost;
+
+      // Add items to inventory
+      const inventoryResults: { slotId: number; itemId: string; quantity: number; isEquipped: boolean }[] = [];
+      for (const p of purchases) {
+        const result = await addInventoryItem(session.characterId!, p.itemId, p.quantity);
+        if (!result.ok) {
+          session.send(PacketType.ZC_ERROR, { code: "BUY_FAILED", message: result.error ?? "inventory error" });
+          return;
+        }
+        inventoryResults.push({ slotId: result.slotId, itemId: p.itemId, quantity: p.quantity, isEquipped: false });
+      }
+
+      // Persist zeny
+      await updateZeny(session.characterId!, session.zeny);
+
+      // Send updates
+      session.send(PacketType.ZC_ZENY_UPDATE, { zeny: session.zeny });
+      session.send(PacketType.ZC_INVENTORY_UPDATE, { slots: inventoryResults });
+      return;
+    }
+
+    case PacketType.CZ_REQUEST_SELL: {
+      if (!session.selectedCharacter) {
+        session.send(PacketType.ZC_ERROR, { code: "NOT_READY", message: "select character first" });
+        return;
+      }
+      const sellPayload = packet.payload as CZRequestSellPayload;
+      const inventory = await getInventory(session.characterId!);
+      let totalZeny = 0;
+      const removedSlotIds: number[] = [];
+
+      for (const slotId of sellPayload.slotIds) {
+        const invItem = inventory.find((i) => i.slotId === slotId);
+        if (!invItem) {
+          session.send(PacketType.ZC_ERROR, { code: "SELL_ITEM_NOT_FOUND", message: `Slot ${slotId} not found in inventory` });
+          return;
+        }
+        if (invItem.isEquipped) {
+          session.send(PacketType.ZC_ERROR, { code: "CANNOT_SELL_EQUIPPED", message: `Cannot sell equipped item in slot ${slotId}` });
+          return;
+        }
+        const itemData = getItemData(invItem.itemId);
+        if (!itemData || itemData.sellPrice <= 0) {
+          session.send(PacketType.ZC_ERROR, { code: "ITEM_NOT_SELLABLE", message: `Item ${invItem.itemId} cannot be sold` });
+          return;
+        }
+        totalZeny += itemData.sellPrice * invItem.quantity;
+        removedSlotIds.push(slotId);
+      }
+
+      // Remove items from DB
+      for (const slotId of removedSlotIds) {
+        const invItem = inventory.find((i) => i.slotId === slotId)!;
+        const result = await removeInventoryItem(session.characterId!, slotId, invItem.quantity);
+        if (!result.ok) {
+          session.send(PacketType.ZC_ERROR, { code: "SELL_FAILED", message: result.error ?? "failed to remove item" });
+          return;
+        }
+      }
+
+      // Add zeny
+      session.zeny += totalZeny;
+      await updateZeny(session.characterId!, session.zeny);
+
+      session.send(PacketType.ZC_ZENY_UPDATE, { zeny: session.zeny });
+
+      // Refresh full inventory
+      const updatedInventory = await getInventory(session.characterId!);
+      session.send(PacketType.ZC_INVENTORY_UPDATE, {
+        slots: updatedInventory.map((i) => ({ slotId: i.slotId, itemId: i.itemId, quantity: i.quantity, isEquipped: i.isEquipped })),
+      });
+      return;
+    }
+
     case PacketType.CZ_REQUEST_REVIVE: {
       if (!session.selectedCharacter) {
         session.send(PacketType.ZC_ERROR, { code: "NOT_READY", message: "select character first" });
@@ -389,6 +679,19 @@ async function handlePacket(session: PlayerSession, packet: ClientPacket): Promi
         return;
       }
 
+      // Fix 5: Verify player is within range of the portal
+      const mapData = getMap(session.mapId);
+      if (mapData) {
+        const portal = mapData.portals.find(p => p.id === payload.portalId);
+        if (portal) {
+          const dist = Math.abs(session.x - portal.x) + Math.abs(session.y - portal.y);
+          if (dist > 2) {
+            session.send(PacketType.ZC_ERROR, { code: "WARP_TOO_FAR", message: "too far from portal" });
+            return;
+          }
+        }
+      }
+
       const oldMapId = session.mapId;
 
       // Leave old room
@@ -399,23 +702,38 @@ async function handlePacket(session: PlayerSession, packet: ClientPacket): Promi
       session.x = payload.targetX;
       session.y = payload.targetY;
 
-      // Join new room
-      const existingEntities = WorldRoom.join(session);
-
-      // Include monster snapshots for new map
-      const monsterSnapshots = gameWorld.getMonsterSnapshots(payload.targetMapId);
-      if (monsterSnapshots.length > 0) {
-        existingEntities.push(...monsterSnapshots);
-      }
-
-      // Ensure GameWorld has the map loaded
+      // Ensure GameWorld has the map loaded BEFORE joining
       gameWorld.ensureMap(payload.targetMapId);
 
-      // Send map change to the player
+      // Join new room (sends ZC_ENTITY_SPAWN about the player to others, returns their snapshots)
+      const existingPlayers = WorldRoom.join(session);
+
+      // Get monster snapshots for the new map
+      const monsterSnapshots = gameWorld.getMonsterSnapshots(payload.targetMapId);
+
+      // Fix 1: Send ZC_MAP_LOAD (with seed if procedural) so the client prepares the map terrain
+      const targetProcConfig = PROCEDURAL_MAPS[payload.targetMapId];
+      if (targetProcConfig) {
+        WorldRoom.sendInitMap(session, {
+          seed: targetProcConfig.seed,
+          width: targetProcConfig.width,
+          height: targetProcConfig.height,
+          tileSize: targetProcConfig.tileSize,
+        });
+      } else {
+        WorldRoom.sendInitMap(session);
+      }
+
       session.send(PacketType.ZC_MAP_CHANGE, {
         mapId: payload.targetMapId,
         position: { x: payload.targetX, y: payload.targetY, z: 0 },
       });
+
+      // Then send all existing entities (players + monsters) as individual spawns
+      const allEntities: EntitySnapshot[] = [...existingPlayers, ...monsterSnapshots];
+      for (const entity of allEntities) {
+        session.send(PacketType.ZC_ENTITY_SPAWN, { entity });
+      }
 
       // Broadcast leave to old map
       WorldRoom.broadcast(oldMapId, PacketType.ZC_ENTITY_DESPAWN, {
@@ -434,7 +752,7 @@ async function handlePacket(session: PlayerSession, packet: ClientPacket): Promi
   }
 }
 
-initMaps(MAP_CATALOG);
+initMaps(MAP_CATALOG, PROCEDURAL_MAPS);
 
 httpServer.listen(PORT, () => {
   console.log(`[Server] listening on port ${PORT}`);
